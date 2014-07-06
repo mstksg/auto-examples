@@ -66,7 +66,7 @@ main = do
     putStrLn . display $ blankPuzzle str0
 
     -- here we go
-    _  <- interactIdI (hangman wordlist g' str0)
+    _  <- interactId (hangman wordlist g' str0)
 
     putStrLn "Goodbye!"
 
