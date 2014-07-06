@@ -1,3 +1,4 @@
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE Arrows #-}
 
 module Main (main) where
@@ -6,7 +7,9 @@ import Control.Auto
 import Control.Auto.Blip
 import Control.Auto.Process.Random
 import Control.Auto.Run
+import Data.Functor.Identity
 import Control.Auto.Serialize
+import Control.Exception hiding (mask)
 import Data.Foldable (mapM_)
 import Control.Auto.Switch
 import Control.Monad hiding (mapM_)
@@ -41,13 +44,16 @@ data Status = InProgress
             | Failure String
             deriving Show
 
-data PuzzleOut = Puzz Puzzle        -- return current puzzle
+data PuzzleOut = Puzz Puzzle Bool   -- return current puzzle; show score?
                | Swap Puzzle Puzzle -- old puzzle, new puzzle
                deriving Show
 
 -- Config
 wordlistFP :: FilePath
 wordlistFP = "data/wordlist.txt"
+
+savegameFP :: FilePath
+savegameFP = "data/save/hangman"
 
 guesses :: Int
 guesses = 7
@@ -63,20 +69,43 @@ main = do
     wordlist <- lines . map toLower <$> readFile wordlistFP
     g        <- getStdGen
 
-        -- create a self-serializing, self-reloading auto, from 'hangman'
-    let a0         = serializing "data/state/hangman" (hangman wordlist g)
+    -- Our game Auto; 'hangman' with a wordlist and a starting seed
+    let gameAuto = hangman wordlist g :: Auto Identity String (Maybe String)
 
-    -- initialize it by running through one iteration
-    Output str a1 <- stepAuto a0 "@display"
+    -- Attempt to load the savefile
+    loaded <- try (readAuto savegameFP gameAuto)
 
-    -- print out out the puzzle
+    -- loadedGame is the loaded/deserialized game auto
+    loadedGame <- case loaded of
+      Right (Right a)           -> do
+        putStrLn "Save file found!  Restoring game."
+        return a
+      Left (_ :: SomeException) -> do
+        putStrLn "No save file found; creating new game."
+        return gameAuto
+      _                         -> do
+        putStrLn "Save file corrupted; creating new game."
+        return gameAuto
+
+    -- run through one iteration to output the current puzzle
+    -- 'initGame' is the game auto after going through one step
+    let Output str initGame = runIdentity (stepAuto loadedGame "@display")
+
+    -- print out out the current puzzle
     mapM_ putStrLn str
 
-    -- here we go, start the loop
-    _  <- interact id a1
+    -- here we go, start running the loop with the initialized game auto
+    -- 'finalGame' is the game after the loop has ended.
+    finalGame  <- interactId initGame
 
+    -- save the game; serialize and write 'finalGame'.
+    putStrLn "Saving game..."
+    writeAuto savegameFP finalGame
+
+    -- Goodbye!
     putStrLn "Goodbye!"
 
+-- the main game auto
 hangman :: Monad m
         => [String]     -- ^ Word list
         -> StdGen       -- ^ Random seed
@@ -117,14 +146,17 @@ hangman wordlist g = proc inp -> do
         -- display result
         id      -< return $ case puzz of
                               -- just the puzzle
-                              Puzz p     -> display p
+                              Puzz p False -> display p
+                              -- puzzle + score
+                              Puzz p True  -> displayScore (wins, losses)
+                                           <> "\n"
+                                           <> display p
                               -- the old puzzle and a new puzzle
-                              Swap p0 p1 -> display p0
-                                         <> "\n"
-                                         <> "Wins: " <> show wins <> " | "
-                                         <> "Losses: " <> show losses
-                                         <> "\n"
-                                         <> display p1
+                              Swap p0 p1   -> display p0
+                                           <> "\n"
+                                           <> displayScore (wins, losses)
+                                           <> "\n"
+                                           <> display p1
 
 -- initial game...only here to "start" the real 'game' auto.  All it does
 -- is emit a 'blip' with a word, which causes 'switchF' to create a new
@@ -133,8 +165,12 @@ initialize :: Monad m
            => Auto m (HMCommand, String) (PuzzleOut, Blip String)
 initialize = proc (_, newstr) -> do
     new <- now -< newstr
-    id   -< (Puzz (blankPuzzle newstr), new)
+    id   -< (Puzz (blankPuzzle newstr) True, new)
 
+-- A single game with a single word.  Takes in commands and outputs
+-- 'PuzzleOut's...or a blip containing the next mystery word.  'switchF'
+-- takes this blip and creates a fresh 'game' out of it, starting the cycle
+-- all over.
 game :: Monad m
      => String    -- ^ The mystery word(s)
      -> Auto m (HMCommand, String) (PuzzleOut, Blip String)
@@ -189,7 +225,7 @@ game str = proc (comm, newstr) -> do
       -- business as usual
       Nothing -> do
         new <- never -< ()
-        id   -< (Puzz puzz, new)
+        id   -< (Puzz puzz False, new)
 
   where
     -- add a unique element to a list.  but don't check for uniqueness if
@@ -216,7 +252,7 @@ mask _ ' '              = ' '
 mask rs c | c `elem` rs = c
           | otherwise   = '_'
 
--- pretty-print a puzzle
+-- Pretty print a puzzle
 display :: Puzzle -> String
 display (Puzzle str ws sts) = pre
                            <> " [" <> str' <> "] "
@@ -228,6 +264,10 @@ display (Puzzle str ws sts) = pre
                     InProgress -> ("Active:", str)
                     Success s  -> ("Solved!", s  )
                     Failure s  -> ("Failed!", s  )
+
+-- Pretty print the score
+displayScore :: (Int, Int) -> String
+displayScore (w, l) = unwords ["Wins:", show w, "|", "Losses:", show l]
 
 -- because no lens
 isSwap :: PuzzleOut -> Bool
