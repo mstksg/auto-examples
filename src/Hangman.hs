@@ -3,7 +3,7 @@
 module Main (main) where
 
 import Control.Auto
-import Control.Auto.Event
+import Control.Auto.Blip
 import Control.Auto.Process.Random
 import Control.Auto.Run
 import Control.Auto.Switch
@@ -100,8 +100,8 @@ hangman wordlist g str0 = proc inp -> do
 
         -- get wins and losses
         swaps  <- blips isSwap               -< puzz
-        losses <- countE . filterE isFailure -< swaps
-        wins   <- countE . filterE isSuccess -< swaps
+        losses <- countB . filterB isFailure -< swaps
+        wins   <- countB . filterB isSuccess -< swaps
 
         -- display result
         id      -< return $ case puzz of
@@ -117,7 +117,7 @@ hangman wordlist g str0 = proc inp -> do
 
 game :: Monad m
      => String
-     -> Auto m (HMCommand, String) (PuzzleOut, Event String)
+     -> Auto m (HMCommand, String) (PuzzleOut, Blip String)
 game str = proc (comm, newstr) -> do
     -- get correct guesses, incorrect guesses, and solves
     let (corr, incorr, solve) = case comm of
