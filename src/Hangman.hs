@@ -99,7 +99,7 @@ hangman wordlist g str0 = proc inp -> do
         puzz   <- switchF game (game str0) -< (hcomm, newstr)
 
         -- get wins and losses
-        swaps  <- blips isSwap               -< puzz
+        swaps  <- emitOn isSwap              -< puzz
         losses <- countB . filterB isFailure -< swaps
         wins   <- countB . filterB isSuccess -< swaps
 
