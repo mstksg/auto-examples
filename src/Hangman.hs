@@ -6,12 +6,14 @@ import Control.Auto
 import Control.Auto.Blip
 import Control.Auto.Process.Random
 import Control.Auto.Run
+import Control.Auto.Serialize
+import Data.Foldable (mapM_)
 import Control.Auto.Switch
-import Control.Monad
+import Control.Monad hiding (mapM_)
 import Data.Char
 import Data.List
 import Data.Maybe
-import Prelude hiding              ((.), id)
+import Prelude hiding              ((.), id, interact, mapM_)
 import System.Random
 
 {-# ANN module "HLint: ignore Use String" #-}
@@ -61,24 +63,28 @@ main = do
     wordlist <- lines . map toLower <$> readFile wordlistFP
     g        <- getStdGen
 
-    -- pick an initial word and display it
-    let (str0, g') = pick wordlist g
-    putStrLn . display $ blankPuzzle str0
+        -- create a self-serializing, self-reloading auto, from 'hangman'
+    let a0         = serializing "data/state/hangman" (hangman wordlist g)
 
-    -- here we go
-    _  <- interactId (hangman wordlist g' str0)
+    -- initialize it by running through one iteration
+    Output str a1 <- stepAuto a0 "@display"
+
+    -- print out out the puzzle
+    mapM_ putStrLn str
+
+    -- here we go, start the loop
+    _  <- interact id a1
 
     putStrLn "Goodbye!"
 
 hangman :: Monad m
         => [String]     -- ^ Word list
         -> StdGen       -- ^ Random seed
-        -> String       -- ^ Starting word
         -> Auto m String (Maybe String)
         --        ^       ^
         --        |       +-- Command line output
         --        +-- Command line input
-hangman wordlist g str0 = proc inp -> do
+hangman wordlist g = proc inp -> do
     -- Primitive command parser
     let comm = case words inp of
                  "@help"   :_      -> Just Help
@@ -96,10 +102,12 @@ hangman wordlist g str0 = proc inp -> do
       Just Quit       -> id -< mzero
       Just (HM hcomm) -> do
         -- Make new random strings, in case the puzzle needs it
-        newstr <- stdRands (pick wordlist) g  -< ()
+        newstr <- stdRands (pick wordlist) g -< ()
 
         -- Puzzle, with the command and a fresh string if needed.
-        puzz   <- switchF game (game str0) -< (hcomm, newstr)
+        -- 'switchF' basically creates a new "game" with a new word every
+        -- time the internal wire emits a blip containing a new word.
+        puzz   <- switchF game initialize -< (hcomm, newstr)
 
         -- get wins and losses
         swaps  <- emitOn isSwap              -< puzz
@@ -117,6 +125,15 @@ hangman wordlist g str0 = proc inp -> do
                                          <> "Losses: " <> show losses
                                          <> "\n"
                                          <> display p1
+
+-- initial game...only here to "start" the real 'game' auto.  All it does
+-- is emit a 'blip' with a word, which causes 'switchF' to create a new
+-- game with that word.
+initialize :: Monad m
+           => Auto m (HMCommand, String) (PuzzleOut, Blip String)
+initialize = proc (_, newstr) -> do
+    new <- now -< newstr
+    id   -< (Puzz (blankPuzzle newstr), new)
 
 game :: Monad m
      => String    -- ^ The mystery word(s)
@@ -203,7 +220,7 @@ mask rs c | c `elem` rs = c
 display :: Puzzle -> String
 display (Puzzle str ws sts) = pre
                            <> " [" <> str' <> "] "
-                           <> "( " <> ws
+                           <> "(" <> ws
                            <> replicate (guesses + 1 - length ws) '.'
                            <> ")"
   where
