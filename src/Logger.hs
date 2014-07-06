@@ -28,8 +28,8 @@ main = do
     void $ interact id (serializing loggingFP loggerSwitch)
 
 
--- wrapper around 'logger'.  Basically, lists for blips from 'logger' and
--- switches it out to a new blank log when it receives the blip.
+-- wrapper around 'logger'.  Basically, listenss for blips from 'logger'
+-- and switches it out to a new blank log when it receives the blip.
 loggerSwitch :: MonadIO m => Auto m String (Maybe String)
 loggerSwitch = switchF (\() -> logger) logger
 
@@ -78,6 +78,7 @@ logger = proc input -> do
 
         id     -< (return output, clear)
 
+-- "pretty print" the log
 displayLog :: String -> String
 displayLog log = "Log length: " <> show loglength
               <> "\n--------\n"
