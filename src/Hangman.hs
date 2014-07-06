@@ -124,21 +124,15 @@ game str = proc (comm, newstr) -> do
                     | otherwise    -> (Nothing, Just '*', False)
             _                      -> (Nothing, Nothing , False)
 
-    -- collect all correct guesses
-    rights <- mkAccum (++) " " -< maybeToList corr
+    -- collect all correct and wrong guesses
+    rights <- mkAccum (++) " "           -< maybeToList corr
+    wrongs <- reverse <$> mkAccum add "" -< incorr
 
         -- is it solved?
     let solved = solve || all (`elem` rights) str
 
-        -- don't count it against the player if already solved
-        incorr'  | solved    = Nothing
-                 | otherwise = incorr
-
-    -- collect all wrong guesses
-    wrongs <- reverse <$> mkAccum add "" -< incorr'
-
         -- did the player run out of guesses?
-    let failed = length wrongs > guesses
+        failed = length wrongs > guesses
 
         -- make status
         status | solved    = Success str
