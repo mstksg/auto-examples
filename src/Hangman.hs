@@ -75,6 +75,9 @@ hangman :: Monad m
         -> StdGen       -- ^ Random seed
         -> String       -- ^ Starting word
         -> Auto m String (Maybe String)
+        --        ^       ^
+        --        |       +-- Command line output
+        --        +-- Command line input
 hangman wordlist g str0 = proc inp -> do
     -- Primitive command parser
     let comm = case words inp of
@@ -118,6 +121,11 @@ hangman wordlist g str0 = proc inp -> do
 game :: Monad m
      => String    -- ^ The mystery word(s)
      -> Auto m (HMCommand, String) (PuzzleOut, Blip String)
+     --         ^          ^        ^          ^
+     --         |          |        |          +-- Event signaling new game, with new word
+     --         |          |        +-- Output puzzle (or puzzle swap)
+     --         |          +-- New random word, if needed to make a new game
+     --         +-- Hangman command
 game str = proc (comm, newstr) -> do
     -- get correct guesses, incorrect guesses, and solves
     let (corr, incorr, solve) = case comm of
