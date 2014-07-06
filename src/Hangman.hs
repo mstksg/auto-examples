@@ -116,7 +116,7 @@ hangman wordlist g str0 = proc inp -> do
                                          <> display p1
 
 game :: Monad m
-     => String
+     => String    -- ^ The mystery word(s)
      -> Auto m (HMCommand, String) (PuzzleOut, Blip String)
 game str = proc (comm, newstr) -> do
     -- get correct guesses, incorrect guesses, and solves
