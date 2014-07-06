@@ -14,6 +14,9 @@ import Data.Maybe
 import Prelude hiding              ((.), id)
 import System.Random
 
+{-# ANN module "HLint: ignore Use String" #-}
+{-# ANN module "HLint: ignore Use string literal" #-}
+
 -- Types
 data GCommand = Help
               | Quit
@@ -26,9 +29,9 @@ data HMCommand = Guess Char
                | Display
                deriving Show
 
-data Puzzle = Puzzle { puzzleString :: String
-                     , puzzleMisses :: String
-                     , puzzleStatus  :: Status
+data Puzzle = Puzzle { puzzleString :: String   -- The "masked" string
+                     , puzzleWrongs :: [Char]   -- List of wrong guesses
+                     , puzzleStatus :: Status
                      } deriving Show
 
 data Status = InProgress
@@ -36,8 +39,8 @@ data Status = InProgress
             | Failure String
             deriving Show
 
-data PuzzleOut = Puzz Puzzle
-               | Swap Puzzle Puzzle
+data PuzzleOut = Puzz Puzzle        -- return current puzzle
+               | Swap Puzzle Puzzle -- old puzzle, new puzzle
                deriving Show
 
 -- Config
@@ -90,13 +93,13 @@ hangman wordlist g str0 = proc inp -> do
       Just Quit       -> id -< mzero
       Just (HM hcomm) -> do
         -- Make a new random string, in case the puzzle needs it
-        newstr <- rand (pick wordlist) g -< ()
+        newstr <- rands (pick wordlist) g  -< ()
 
         -- Puzzle, with the command and a fresh string if needed.
         puzz   <- switchF game (game str0) -< (hcomm, newstr)
 
         -- get wins and losses
-        swaps  <- blips isSwap -< puzz
+        swaps  <- blips isSwap               -< puzz
         losses <- countE . filterE isFailure -< swaps
         wins   <- countE . filterE isSuccess -< swaps
 
@@ -125,8 +128,8 @@ game str = proc (comm, newstr) -> do
             _                      -> (Nothing, Nothing , False)
 
     -- collect all correct and wrong guesses
-    rights <- mkAccum (++) " "           -< maybeToList corr
-    wrongs <- reverse <$> mkAccum add "" -< incorr
+    rights <- mkAccum (++) [' ']         -< maybeToList corr
+    wrongs <- reverse <$> mkAccum add [] -< incorr
 
         -- is it solved?
     let solved = solve || all (`elem` rights) str
@@ -141,7 +144,7 @@ game str = proc (comm, newstr) -> do
 
         -- the puzzle object
         puzz   = Puzzle { puzzleString = map (mask rights) str
-                        , puzzleMisses = wrongs
+                        , puzzleWrongs = wrongs
                         , puzzleStatus = status
                         }
 
@@ -180,9 +183,9 @@ pick xs g = (xs !! n, g')
 
 -- new blank puzzle
 blankPuzzle :: String -> Puzzle
-blankPuzzle str = Puzzle (map (mask "") str) "" InProgress
+blankPuzzle str = Puzzle (map (mask []) str) [] InProgress
 
--- mask item if in the given string
+-- mask item if in the given string, unless it is a space
 mask :: String -> Char -> Char
 mask _ ' '              = ' '
 mask rs c | c `elem` rs = c
@@ -190,13 +193,11 @@ mask rs c | c `elem` rs = c
 
 -- pretty-print a puzzle
 display :: Puzzle -> String
-display (Puzzle str m sts) = pre
-                          <> " ["
-                          <> str'
-                          <> "] ("
-                          <> m
-                          <> replicate (guesses + 1 - length m) '.'
-                          <> ")"
+display (Puzzle str ws sts) = pre
+                           <> " [" <> str' <> "] "
+                           <> "( " <> ws
+                           <> replicate (guesses + 1 - length ws) '.'
+                           <> ")"
   where
     (pre, str') = case sts of
                     InProgress -> ("Active:", str)
