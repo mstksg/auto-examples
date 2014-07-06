@@ -59,9 +59,15 @@ guesses :: Int
 guesses = 7
 
 helpmsg :: String
-helpmsg = "Solve the hangman!  @new for a new game.  @solve [solution] to "
-       <> "solve.  @quit to quit.  @display to show current puzzle.  Type "
-       <> "any single character to guess that character."
+helpmsg = unlines [ "Solve the hangman!"
+                  , "> @new                   : new game                "
+                  , "> @help                  : display this message    "
+                  , "> @display               : display score and puzzle"
+                  , "> (any single character) : guess that character    "
+                  , "> @solve [sol]           : attempt to solve        "
+                  , "> @quit                  : quit                    "
+                  ]
+
 
 main :: IO ()
 main = do
@@ -99,7 +105,7 @@ main = do
     finalGame  <- interactId initGame
 
     -- save the game; serialize and write 'finalGame'.
-    putStrLn "Saving game..."
+    putStrLn $ "Saving game to " <> savegameFP <> "..."
     writeAuto savegameFP finalGame
 
     -- Goodbye!
@@ -224,8 +230,11 @@ game str = proc (comm, newstr) -> do
 
       -- business as usual
       Nothing -> do
+        -- show the score if @display was the command
+        let showScore = isDisplay comm
+
         new <- never -< ()
-        id   -< (Puzz puzz False, new)
+        id   -< (Puzz puzz showScore, new)
 
   where
     -- add a unique element to a list.  but don't check for uniqueness if
@@ -281,3 +290,7 @@ isFailure _                                 = False
 isSuccess :: PuzzleOut -> Bool
 isSuccess (Swap (Puzzle _ _ (Success _)) _) = True
 isSuccess _                                 = False
+
+isDisplay :: HMCommand -> Bool
+isDisplay Display = True
+isDisplay _       = False
