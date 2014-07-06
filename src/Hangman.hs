@@ -92,7 +92,7 @@ hangman wordlist g str0 = proc inp -> do
       Just Help       -> id -< return helpmsg
       Just Quit       -> id -< mzero
       Just (HM hcomm) -> do
-        -- Make a new random string, in case the puzzle needs it
+        -- Make new random strings, in case the puzzle needs it
         newstr <- rands (pick wordlist) g  -< ()
 
         -- Puzzle, with the command and a fresh string if needed.
