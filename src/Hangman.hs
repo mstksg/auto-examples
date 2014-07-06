@@ -132,6 +132,7 @@ hangman wordlist g = proc inp -> do
                  _                 -> Nothing
 
     case comm of
+      -- return is Just; mzero is Nothing
       Nothing         -> id -< return "Unknown command.  @help for help."
       Just Help       -> id -< return helpmsg
       Just Quit       -> id -< mzero
