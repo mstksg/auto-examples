@@ -28,9 +28,14 @@ main = do
     void $ interact id (serializing loggingFP loggerSwitch)
 
 
+-- wrapper around 'logger'.  Basically, lists for blips from 'logger' and
+-- switches it out to a new blank log when it receives the blip.
 loggerSwitch :: MonadIO m => Auto m String (Maybe String)
-loggerSwitch = switchF (const logger) logger
+loggerSwitch = switchF (\() -> logger) logger
 
+-- logger auto.  Takes in strings to log, or commands.  Outputs a 'Maybe
+-- String', with 'Nothing' when it's "done"/quitting.  Also outputs
+-- a 'Blip' that tells 'loggerSwitch' to swap out for a fresh logger auto.
 logger :: MonadIO m
        => Auto m String (Maybe String, Blip ())
 logger = proc input -> do
