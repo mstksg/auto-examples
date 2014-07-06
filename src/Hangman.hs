@@ -52,7 +52,6 @@ helpmsg = "Solve the hangman!  @new for a new game.  @solve [solution] to "
        <> "solve.  @quit to quit.  @display to show current puzzle.  Type "
        <> "any single character to guess that character."
 
--- main
 main :: IO ()
 main = do
     putStrLn "Welcome to Hangman!  Type @help for help!"
@@ -126,7 +125,7 @@ game str = proc (comm, newstr) -> do
             _                      -> (Nothing, Nothing , False)
 
     -- collect all correct guesses
-    rights <- mkAccum add " "            -< corr
+    rights <- mkAccum (++) " " -< maybeToList corr
 
         -- is it solved?
     let solved = solve || all (`elem` rights) str
