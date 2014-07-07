@@ -106,17 +106,17 @@ karmaBot = proc (InMessage _ msg _ _) -> do
     karmaBlip <- emitJusts comm -< msg
     karmas    <- scanB f mempty -< karmaBlip
 
-    id -< case words msg of
-            "@karma":nick:_ ->
-              [ "'" ++ nick ++ "' has a karma of "
-             ++ show (M.findWithDefault 0 nick karmas) ++ "." ]
-            _               ->
-              mzero
+    let outBlip = flip fmap karmaBlip $ \(nick, _) ->
+                    let karm = M.findWithDefault 0 nick karmas
+                    in  ["'" ++ nick ++ "' has a karma of " ++ show karm ++ "."]
+
+    fromBlips mzero -< outBlip
   where
     comm :: String -> Maybe (String, Int)
     comm msg = case words msg of
                  "@addKarma":nick:_ -> Just (nick, 1 )
                  "@subKarma":nick:_ -> Just (nick, -1)
+                 "@karma":nick:_    -> Just (nick, 0)
                  _                  -> Nothing
     f m (nick, change) = M.insertWith (+) nick change m
 
@@ -136,7 +136,7 @@ announceBot = proc im -> do
     announcing :: InMessage -> Maybe (String, String)
     announcing (InMessage nick msg _ _) =
         case words msg of
-          "@ann":ann -> Just (nick, nick ++ " says, '" ++ unwords ann ++ "'.")
+          "@ann":ann -> Just (nick, nick ++ " says, \"" ++ unwords ann ++ "\".")
           _          -> Nothing
     count m nick = M.insertWith (+) nick (1 :: Int) m
 
