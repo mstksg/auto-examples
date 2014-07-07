@@ -32,7 +32,7 @@ And the executables should all be in `./.cabal-sandbox/bin` of the
 Examples
 --------
 
-### Hangman
+### hangman
 
 A fully featured command-line hangman game.  Made to demonstrate many
 high-level features, like the composition of locally stateful autos with
@@ -55,7 +55,7 @@ commenting).  Part of this is because Hangman is pretty simple.  But I really
 feel like the whole thing "reads" well, and is in a more understandable
 high-level declarative/denotative style than such an approach.
 
-### Logger
+### logger
 
 Mostly used to demonstrate "automatic serialization".  Using the `serializing`
 combinator, we transform a normal auto representing a logging process into an
