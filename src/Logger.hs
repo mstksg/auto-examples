@@ -2,16 +2,17 @@
 
 module Main (main) where
 
-import Control.Auto
-import Control.Auto.Switch
-import Control.Auto.Effects
-import Control.Auto.Run
-import Control.Auto.Serialize
-import Control.Monad
+-- import Control.Auto.Effects
+-- import Control.Auto.Run
+-- import Control.Monad.IO.Class
+import Control.Auto hiding       (loop)
 import Control.Auto.Blip
-import Control.Monad.IO.Class
+import Control.Auto.Serialize
+import Control.Auto.Switch
+import Control.Monad hiding      (forM_)
+import Data.Foldable             (forM_)
 import Data.Time
-import Prelude hiding         (interact, id, (.), log)
+import Prelude hiding            (interact, id, (.), log)
 import System.Locale
 
 loggingFP :: FilePath
@@ -23,22 +24,35 @@ main = do
     putStrLn "<< @quit to quit >>"
     putStrLn "<< @clear to clear >>"
 
-    -- interact with 'loggerSwitch', automatically serialized and re-loaded
-    -- implicitly to the filepath 'loggingFP'
-    void $ interact id (serializing loggingFP loggerSwitch)
+    -- loop through the 'loggerSwitch' wire, with implicit serialization
+    loop $ serializing loggingFP loggerSwitch
+  where
+    loop a = do
+      inp  <- getLine
+      time <- getCurrentTime
+      Output out a' <- stepAuto a (inp, time)
+      forM_ out $ \str -> do
+        putStrLn str
+        loop a'
+
 
 
 -- wrapper around 'logger'.  Basically, listenss for blips from 'logger'
 -- and switches it out to a new blank log when it receives the blip.
-loggerSwitch :: MonadIO m => Auto m String (Maybe String)
+loggerSwitch :: Monad m => Auto m (String, UTCTime) (Maybe String)
 loggerSwitch = switchF (\() -> logger) logger
 
 -- logger auto.  Takes in strings to log, or commands.  Outputs a 'Maybe
 -- String', with 'Nothing' when it's "done"/quitting.  Also outputs
 -- a 'Blip' that tells 'loggerSwitch' to swap out for a fresh logger auto.
-logger :: MonadIO m
-       => Auto m String (Maybe String, Blip ())
-logger = proc input -> do
+logger :: Monad m
+       => Auto m (String, UTCTime) (Maybe String, Blip ())
+--               ^        ^         ^             ^
+--               |        |         |             +-- tell 'switchF' in 'loggerSwitch' to switch to a new 'logger'
+--               |        |         +-- Command line output.  Nothing means quit.
+--               |        +-- Time of the command
+--               +-- Command line input from 'interact'.
+logger = proc (input, time) -> do
     let inputwords = words input
 
     case inputwords of
@@ -52,8 +66,6 @@ logger = proc input -> do
         id     -< (return "Cleared!", clear)
 
       _          -> do
-        -- Get the time at every step
-        time <- effect (liftIO getCurrentTime) -< ()
 
             -- is this a history request?
         let showHist = case inputwords of

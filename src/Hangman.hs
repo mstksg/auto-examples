@@ -108,7 +108,6 @@ main = do
     putStrLn $ "Saving game to " <> savegameFP <> "..."
     writeAuto savegameFP finalGame
 
-    -- Goodbye!
     putStrLn "Goodbye!"
 
 -- the main game auto
@@ -117,7 +116,7 @@ hangman :: Monad m
         -> StdGen       -- ^ Random seed
         -> Auto m String (Maybe String)
         --        ^       ^
-        --        |       +-- Command line output
+        --        |       +-- Command line output.  Nothing means quit.
         --        +-- Command line input
 hangman wordlist g = proc inp -> do
     -- Primitive command parser
