@@ -49,6 +49,12 @@ puzzle --- it doesn't even contain the solution.
 Also, note the principled reading and saving of the game auto using `readAuto`
 and `writeAuto`.
 
+Admittedly it's a lot "longer" in terms of lines of code than the simple
+explicit-state-passing version (even without the gratuitous whitespace and
+commenting).  Part of this is because Hangman is pretty simple.  But I really
+feel like the whole thing "reads" well, and is in a more understandable
+high-level declarative/denotative style than such an approach.
+
 ### Logger
 
 Mostly used to demonstrate "automatic serialization".  Using the `serializing`
