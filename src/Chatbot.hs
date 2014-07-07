@@ -1,5 +1,4 @@
 {-# LANGUAGE ScopedTypeVariables #-}
--- {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE Arrows #-}
 {-# OPTIONS -fno-warn-orphans #-}
 
@@ -8,6 +7,7 @@ module Main where
 -- import Control.Auto.Serialize
 -- import Control.Monad
 import Control.Auto
+import Control.Auto.Switch
 import Control.Auto.Blip
 import Control.Concurrent
 import Control.Exception
@@ -19,6 +19,8 @@ import Network.SimpleIRC
 import Prelude hiding                  ((.), id)
 import qualified Data.ByteString.Char8 as C8
 import qualified Data.Map.Strict       as M
+
+{-# ANN module "HLint: ignore Use const" #-}
 
 botName :: String
 botName = "autobot-test"
@@ -123,16 +125,22 @@ karmaBot = proc (InMessage _ msg _ _) -> do
 announceBot :: Monad m => ChatBot m
 announceBot = proc im -> do
     annBlip <- emitJusts announcing -< im
-    amnts   <- scanB count mempty   -< fst <$> annBlip
+    newDay  <- onChange             -< utctDay (inMessageTime im)
+
+    let annName = fst <$> annBlip
+    amnts   <- rSwitchF (\_ -> counter) counter -< (annName, newDay)
 
     let outmsgs = flip fmap annBlip $ \(nick, ann) ->
                     let amt = M.findWithDefault 0 nick amnts
-                    in  if amt < 5
+                    in  if amt <= floodLimit
                           then (,) <$> channels <*> pure ann
                           else [(inMessageSource im, "No flooding!")]
 
     fromBlips mempty -< OutMessages . fmap (:[]) . M.fromList <$> outmsgs
   where
+    counter = scanB count mempty
+    floodLimit :: Int
+    floodLimit = 3
     announcing :: InMessage -> Maybe (String, String)
     announcing (InMessage nick msg _ _) =
         case words msg of
@@ -141,5 +149,9 @@ announceBot = proc im -> do
     count m nick = M.insertWith (+) nick (1 :: Int) m
 
 instance Serialize UTCTime where
+    get = read <$> get
+    put = put . show
+
+instance Serialize Day where
     get = read <$> get
     put = put . show
