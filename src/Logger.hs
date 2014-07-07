@@ -25,11 +25,12 @@ main = do
     putStrLn "<< @clear to clear >>"
 
     -- loop through the 'loggerSwitch' wire, with implicit serialization
-    loop $ serializing loggingFP loggerSwitch
+    loop $ serializing' loggingFP loggerSwitch
   where
     loop a = do
       inp  <- getLine
       time <- getCurrentTime
+      -- step the Auto with the input and the current time
       Output out a' <- stepAuto a (inp, time)
       forM_ out $ \str -> do
         putStrLn str
