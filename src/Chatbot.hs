@@ -1,17 +1,19 @@
 {-# LANGUAGE ScopedTypeVariables #-}
+-- {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE Arrows #-}
 {-# OPTIONS -fno-warn-orphans #-}
 
 module Main where
 
 -- import Control.Auto.Serialize
+-- import Control.Monad
 import Control.Auto
+import Control.Auto.Blip
 import Control.Concurrent
-import Data.Serialize
 import Control.Exception
 import Control.Monad
--- import Control.Monad
 import Data.Map.Strict                 (Map)
+import Data.Serialize
 import Data.Time
 import Network.SimpleIRC
 import Prelude hiding                  ((.), id)
@@ -77,7 +79,10 @@ onMessage amvr server msg = do
     return ()
 
 chatBot :: Monad m => ChatBot m
-chatBot = mconcat [perRoom seenBot]
+chatBot = mconcat [ perRoom seenBot
+                  , perRoom karmaBot
+                  ,         announceBot
+                  ]
 
 perRoom :: Monad m => ChatBot' m -> ChatBot m
 perRoom cb' = proc im -> do
@@ -96,6 +101,44 @@ seenBot = proc (InMessage nick msg _ time) -> do
             _             ->
               mzero
 
+karmaBot :: Monad m => ChatBot' m
+karmaBot = proc (InMessage _ msg _ _) -> do
+    karmaBlip <- emitJusts comm -< msg
+    karmas    <- scanB f mempty -< karmaBlip
+
+    id -< case words msg of
+            "@karma":nick:_ ->
+              [ "'" ++ nick ++ "' has a karma of "
+             ++ show (M.findWithDefault 0 nick karmas) ++ "." ]
+            _               ->
+              mzero
+  where
+    comm :: String -> Maybe (String, Int)
+    comm msg = case words msg of
+                 "@addKarma":nick:_ -> Just (nick, 1 )
+                 "@subKarma":nick:_ -> Just (nick, -1)
+                 _                  -> Nothing
+    f m (nick, change) = M.insertWith (+) nick change m
+
+announceBot :: Monad m => ChatBot m
+announceBot = proc im -> do
+    annBlip <- emitJusts announcing -< im
+    amnts   <- scanB count mempty   -< fst <$> annBlip
+
+    let outmsgs = flip fmap annBlip $ \(nick, ann) ->
+                    let amt = M.findWithDefault 0 nick amnts
+                    in  if amt < 5
+                          then (,) <$> channels <*> pure ann
+                          else [(inMessageSource im, "No flooding!")]
+
+    fromBlips mempty -< OutMessages . fmap (:[]) . M.fromList <$> outmsgs
+  where
+    announcing :: InMessage -> Maybe (String, String)
+    announcing (InMessage nick msg _ _) =
+        case words msg of
+          "@ann":ann -> Just (nick, nick ++ " says, '" ++ unwords ann ++ "'.")
+          _          -> Nothing
+    count m nick = M.insertWith (+) nick (1 :: Int) m
 
 instance Serialize UTCTime where
     get = read <$> get
