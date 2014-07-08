@@ -4,14 +4,14 @@
 
 module Main where
 
--- import Control.Auto.Serialize
--- import Control.Monad
 import Control.Auto
-import Control.Auto.Switch
 import Control.Auto.Blip
+import Control.Auto.Serialize
+import Control.Auto.Switch
 import Control.Concurrent
 import Control.Exception
 import Control.Monad
+import Control.Monad.IO.Class
 import Data.Map.Strict                 (Map)
 import Data.Serialize
 import Data.Time
@@ -49,8 +49,7 @@ instance Monoid OutMessages where
     mappend (OutMessages a) (OutMessages b) = OutMessages (M.unionWith (<>) a b)
 
 main :: IO ()
-main = launchIRC chatBot $ \_ ->
-         print "callback"
+main = launchIRC chatBot $ \_ -> return ()
 
 ircConf :: MVar (ChatBot IO) -> IrcConfig
 ircConf a = (mkDefaultConfig "irc.freenode.org" botName)
@@ -80,11 +79,13 @@ onMessage amvr server msg = do
         mapM_ (sendMsg server (C8.pack k) . C8.pack) v
     return ()
 
-chatBot :: Monad m => ChatBot m
-chatBot = mconcat [ perRoom seenBot
-                  , perRoom karmaBot
-                  ,         announceBot
+chatBot :: MonadIO m => ChatBot m
+chatBot = mconcat [ s "seen"  $ perRoom seenBot
+                  , s "karma" $ perRoom karmaBot
+                  ,                     announceBot
                   ]
+  where
+    s fp = serializing ("data/save/chatbot-" ++ fp)
 
 perRoom :: Monad m => ChatBot' m -> ChatBot m
 perRoom cb' = proc im -> do

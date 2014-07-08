@@ -42,7 +42,7 @@ methodology.
 
 Note the lack of a global "hangman state".  All the components of the state
 --- the current word, the wrong guesses, the player scores, etc. --- are
-isolated from eachother and only interact when needed.  The `Puzzle` type only
+isolated from each other and only interact when needed.  The `Puzzle` type only
 contains information for the console to display the current "output" of the
 puzzle --- it doesn't even contain the solution.
 
@@ -61,5 +61,26 @@ Mostly used to demonstrate "automatic serialization".  Using the `serializing`
 combinator, we transform a normal auto representing a logging process into an
 auto that automatically, implicitly, and constantly serializes itself...and
 automatically re-loads the saved state on the program initialization.
+
+### chatbot
+
+Lots of concepts demonstrated here.  In fact, this was one of the motivating
+reasons for the entire *auto* library in the first place.
+
+(to be continued)
+
+### life
+
+[Conway's Game of Life][cgol] implementation.  Demonstration of
+non-interactive automation/simulation/cellular automaton.  In the technical
+aspects, a demonstration of the `rec`/`ArrowLoop` mechanisms for recursive,
+graph-like Auto connections.
+
+I consider this to be another compelling demonstration of the power of
+denotative style.  The entire "game logic" is 3-4 lines long, depending on how
+you cut it (not including helper functions) and (as I would hope) is very
+readable.  Some nice practice with the various `Blip` combinators, as well!
+
+[cgol]: http://en.wikipedia.org/wiki/Conway's_Game_of_Life
 
 
