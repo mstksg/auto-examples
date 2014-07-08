@@ -81,8 +81,8 @@ onMessage amvr server msg = do
 
 chatBot :: MonadIO m => ChatBot m
 chatBot = mconcat [ s "seen"  $ perRoom seenBot
-                  , s "karma" $ perRoom karmaBot
-                  ,                     announceBot
+                  ,             perRoom karmaBot
+                  , s "ann"             announceBot
                   ]
   where
     s fp = serializing ("data/save/chatbot-" ++ fp)
