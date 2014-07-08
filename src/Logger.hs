@@ -25,7 +25,7 @@ main = do
     putStrLn "<< @clear to clear >>"
 
     -- loop through the 'loggerSwitch' wire, with implicit serialization
-    loop $ serializing' loggingFP loggerSwitch
+    loop $ serializing' loggingFP loggerReset
   where
     loop a = do
       inp  <- getLine
@@ -38,10 +38,10 @@ main = do
 
 
 
--- wrapper around 'logger'.  Basically, listenss for blips from 'logger'
--- and switches it out to a new blank log when it receives the blip.
-loggerSwitch :: Monad m => Auto m (String, UTCTime) (Maybe String)
-loggerSwitch = switchF (\() -> logger) logger
+-- loggerReset basically wraps around 'logger' --- listens for the Blip
+-- coming from 'logger', and resets logger when it receives one.
+loggerReset :: Monad m => Auto m (String, UTCTime) (Maybe String)
+loggerReset = resetFrom logger
 
 -- logger auto.  Takes in strings to log, or commands.  Outputs a 'Maybe
 -- String', with 'Nothing' when it's "done"/quitting.  Also outputs

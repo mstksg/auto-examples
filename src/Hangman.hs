@@ -140,9 +140,9 @@ hangman wordlist g = proc inp -> do
         newstr <- stdRands (pick wordlist) g -< ()
 
         -- Puzzle, with the command and a fresh string if needed.
-        -- 'switchF' basically creates a new "game" with a new word every
-        -- time the internal wire emits a blip containing a new word.
-        puzz   <- switchF game initialize -< (hcomm, newstr)
+        -- 'switchFromF' basically creates a new "game" with a new word
+        -- every time the internal wire emits a blip containing a new word.
+        puzz   <- switchFromF game initialize -< (hcomm, newstr)
 
         -- get wins and losses
         swaps  <- emitOn isSwap              -< puzz
@@ -165,7 +165,7 @@ hangman wordlist g = proc inp -> do
                                            <> display p1
 
 -- initial game...only here to "start" the real 'game' auto.  All it does
--- is emit a 'blip' with a word, which causes 'switchF' to create a new
+-- is emit a 'blip' with a word, which causes 'switchFromF' to create a new
 -- game with that word.
 initialize :: Monad m
            => Auto m (HMCommand, String) (PuzzleOut, Blip String)

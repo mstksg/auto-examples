@@ -70,7 +70,7 @@ board g0 = proc _ -> do
     nop       = replicate 2 Alive
 
 cell :: Monad m => Cell -> Auto m [Cell] Cell
-cell c0 = switchF cell' (cell' c0) <<^ length . filter isAlive
+cell c0 = switchFromF cell' (cell' c0) <<^ length . filter isAlive
   where
     cell' Alive = (fromBlips Alive &&& id) . tagBlips Dead  . became death
     cell' Dead  = (fromBlips Dead  &&& id) . tagBlips Alive . became spawn
