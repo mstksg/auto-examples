@@ -54,35 +54,6 @@ chatbotFP = "data/save/chatbot"
 main :: IO ()
 main = launchIRC chatBot $ \_ -> return ()
 
--- | Boring low-level MIRC stuff
-ircConf :: MVar (ChatBot IO) -> IrcConfig
-ircConf a = (mkDefaultConfig "irc.freenode.org" botName)
-              { cChannels = channels
-              , cEvents   = [Privmsg (onMessage a)]
-              }
-
-launchIRC :: ChatBot IO -> (ChatBot IO -> IO ()) -> IO ()
-launchIRC a0 cont = do
-    amvr <- newMVar a0
-    let launch = connect (ircConf amvr) False True
-    void launch `catch` \(_ :: AsyncException) -> withMVar amvr cont
-
-onMessage :: MVar (ChatBot IO) -> EventFunc
-onMessage amvr server msg = do
-    OutMessages resps <- modifyMVar amvr $ \a ->
-      case (mNick msg, mOrigin msg) of
-        (Just nick, Just orig) -> do
-          t <- getCurrentTime
-          let inmsg = InMessage (C8.unpack nick) (C8.unpack (mMsg msg))
-                                (C8.unpack orig) t
-          Output out a' <- stepAuto a inmsg
-          return (a', out)
-        _   ->
-          return (a, mempty)
-    _ <- flip M.traverseWithKey resps $ \k v ->
-        mapM_ (sendMsg server (C8.pack k) . C8.pack) v
-    return ()
-
 -- The bot!  Basically a monoid sum of smaller bots!  Each component
 -- selectively serialized.
 chatBot :: MonadIO m => ChatBot m
@@ -161,7 +132,6 @@ announceBot = proc im -> do
     count m nick = M.insertWith (+) nick (1 :: Int) m
 
 -- | cheating instances
-
 instance Serialize UTCTime where
     get = read <$> get
     put = put . show
@@ -169,3 +139,33 @@ instance Serialize UTCTime where
 instance Serialize Day where
     get = read <$> get
     put = put . show
+
+-- | Boring low-level MIRC stuff
+ircConf :: MVar (ChatBot IO) -> IrcConfig
+ircConf a = (mkDefaultConfig "irc.freenode.org" botName)
+              { cChannels = channels
+              , cEvents   = [Privmsg (onMessage a)]
+              }
+
+launchIRC :: ChatBot IO -> (ChatBot IO -> IO ()) -> IO ()
+launchIRC a0 cont = do
+    amvr <- newMVar a0
+    let launch = connect (ircConf amvr) False True
+    void launch `catch` \(_ :: AsyncException) -> withMVar amvr cont
+
+onMessage :: MVar (ChatBot IO) -> EventFunc
+onMessage amvr server msg = do
+    OutMessages resps <- modifyMVar amvr $ \a ->
+      case (mNick msg, mOrigin msg) of
+        (Just nick, Just orig) -> do
+          t <- getCurrentTime
+          let inmsg = InMessage (C8.unpack nick) (C8.unpack (mMsg msg))
+                                (C8.unpack orig) t
+          Output out a' <- stepAuto a inmsg
+          return (a', out)
+        _   ->
+          return (a, mempty)
+    _ <- flip M.traverseWithKey resps $ \k v ->
+        mapM_ (sendMsg server (C8.pack k) . C8.pack) v
+    return ()
+
