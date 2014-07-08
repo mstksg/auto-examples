@@ -19,8 +19,8 @@ import Data.Maybe
 import Prelude hiding              ((.), id, interact, mapM_)
 import System.Random
 
-{-# ANN module "HLint: ignore Use String" #-}
-{-# ANN module "HLint: ignore Use string literal" #-}
+{-# ANN Puzzle "HLint: ignore Use String" #-}
+{-# ANN game "HLint: ignore Use string literal" #-}
 
 -- Types
 data GCommand = Help

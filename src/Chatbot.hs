@@ -3,7 +3,7 @@
 {-# LANGUAGE TupleSections #-}
 {-# OPTIONS -fno-warn-orphans #-}
 
-module Main where
+module Main (main) where
 
 import Control.Auto
 import Control.Auto.Blip
@@ -21,9 +21,8 @@ import Prelude hiding                  ((.), id)
 import qualified Data.ByteString.Char8 as C8
 import qualified Data.Map.Strict       as M
 
-{-# ANN module "HLint: ignore Use const" #-}
-
 -- | Types
+
 -- A Chat bot; takes in a message and outputs a map of (Channel, Messages)
 -- pairs
 type ChatBot m = Auto m InMessage OutMessages
@@ -34,15 +33,15 @@ type ChatBot' m = Auto m InMessage [String]
 type Nick    = String
 type Channel = String
 
-data InMessage = InMessage { inMessageNick   :: Nick
-                           , inMessageBody   :: String
-                           , inMessageSource :: Channel
-                           , inMessageTime   :: UTCTime
+data InMessage = InMessage { _inMessageNick   :: Nick
+                           , _inMessageBody   :: String
+                           , _inMessageSource :: Channel
+                           , _inMessageTime   :: UTCTime
                            } deriving Show
 
 -- Output map; the keys are channels and the values are messages to send to
 -- each channel.
-newtype OutMessages = OutMessages { outMessageMap :: Map Channel [String]
+newtype OutMessages = OutMessages { _outMessageMap :: Map Channel [String]
                                   }
 
 instance Monoid OutMessages where
@@ -73,7 +72,7 @@ chatBot = mconcat [ s "seen"  $ perRoom seenBot     -- seenBot, self-serializing
   where
     -- transforms an Auto into a self-serializing and self-reloading Auto,
     -- saving at that given filepath.
-    s fp = serializing' ("data/save/chatbot-" ++ fp)
+    s fp = serializing' (chatbotFP ++ "-" ++ fp)
 
 -- Helper function to transform a Chatbot' into a Chatbot --- chatbots
 -- written for single-channel intput/output to multi-channel-aware
@@ -81,7 +80,7 @@ chatBot = mconcat [ s "seen"  $ perRoom seenBot     -- seenBot, self-serializing
 perRoom :: Monad m => ChatBot' m -> ChatBot m
 perRoom cb' = proc im -> do
     outs <- cb' -< im
-    id -< OutMessages $ M.singleton (inMessageSource im) outs
+    id -< OutMessages $ M.singleton (_inMessageSource im) outs
 
 -- | The Modules/bots
 
@@ -148,7 +147,7 @@ karmaBot = proc (InMessage _ msg _ _) -> do
 -- broadcasts and only allow 3 announcements per day per user, reset every
 -- day at midnight.
 announceBot :: forall m. Monad m => ChatBot m
-announceBot = proc im@(InMessage _ _ src _) -> do
+announceBot = proc im@(InMessage _ _ src time) -> do
     -- annBlip, a 'Blip (Nick, String)' (the nick sending the
     -- announcement, and the announcement), that is fired/emitted every
     -- time an announcement is observed anywhere.
@@ -156,7 +155,7 @@ announceBot = proc im@(InMessage _ _ src _) -> do
 
     -- newDay is a Blip that occurs every time a new day is observed in the
     -- InMessage's time field.
-    newDay  <- onChange             -< utctDay (inMessageTime im)
+    newDay  <- onChange             -< utctDay time
 
         -- A Blip of the nick sending the announcement.
     let annNick = fst <$> annBlip

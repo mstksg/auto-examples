@@ -2,7 +2,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE RankNTypes #-}
 
-module Main where
+module Main (main) where
 
 import Control.Auto hiding     (loop)
 import Control.Auto.Blip
