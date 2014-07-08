@@ -22,15 +22,7 @@ import qualified Data.Map.Strict       as M
 
 {-# ANN module "HLint: ignore Use const" #-}
 
-botName :: String
-botName = "autobot-test"
-
-channels :: [String]
-channels = ["#autobot-test"]
-
-chatbotFP :: FilePath
-chatbotFP = "data/save/chatbot"
-
+-- types
 type ChatBot m = Auto m InMessage OutMessages
 type ChatBot' m = Auto m InMessage [String]
 
@@ -48,9 +40,21 @@ instance Monoid OutMessages where
     mempty = OutMessages mempty
     mappend (OutMessages a) (OutMessages b) = OutMessages (M.unionWith (<>) a b)
 
+-- config
+botName :: String
+botName = "autobot-test"
+
+channels :: [String]
+channels = ["#autobot-test"]
+
+chatbotFP :: FilePath
+chatbotFP = "data/save/chatbot"
+
+-- main
 main :: IO ()
 main = launchIRC chatBot $ \_ -> return ()
 
+-- | Boring low-level MIRC stuff
 ircConf :: MVar (ChatBot IO) -> IrcConfig
 ircConf a = (mkDefaultConfig "irc.freenode.org" botName)
               { cChannels = channels
@@ -79,18 +83,25 @@ onMessage amvr server msg = do
         mapM_ (sendMsg server (C8.pack k) . C8.pack) v
     return ()
 
+-- The bot!  Basically a monoid sum of smaller bots!  Each component
+-- selectively serialized.
 chatBot :: MonadIO m => ChatBot m
 chatBot = mconcat [ s "seen"  $ perRoom seenBot
                   ,             perRoom karmaBot
                   , s "ann"             announceBot
                   ]
   where
-    s fp = serializing ("data/save/chatbot-" ++ fp)
+    s fp = serializing' ("data/save/chatbot-" ++ fp)
 
+-- Helper function to transform chat bots written for single channels (only
+-- outputting one channel output) to bots that can talk to multiple
+-- channels.
 perRoom :: Monad m => ChatBot' m -> ChatBot m
 perRoom cb' = proc im -> do
     outs <- cb' -< im
     id -< OutMessages $ M.singleton (inMessageSource im) outs
+
+-- | The Modules/bots
 
 seenBot :: Monad m => ChatBot' m
 seenBot = proc (InMessage nick msg _ time) -> do
@@ -148,6 +159,8 @@ announceBot = proc im -> do
           "@ann":ann -> Just (nick, nick ++ " says, \"" ++ unwords ann ++ "\".")
           _          -> Nothing
     count m nick = M.insertWith (+) nick (1 :: Int) m
+
+-- | cheating instances
 
 instance Serialize UTCTime where
     get = read <$> get
