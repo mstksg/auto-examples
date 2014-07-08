@@ -45,22 +45,9 @@ main = do
     loop a = do
       Output g a' <- stepAuto a ()
       clearScreen
-      putStrLn $ showGrid g
+      putStrLn (showGrid g)
       _ <- getLine
       () <$ loop a'
-
-showGrid :: Grid -> String
-showGrid = unlines . map (concatMap showCell)
-  where
-    showCell Alive = "*|"
-    showCell Dead  = "_|"
-
-readGrid :: [String] -> Grid
-readGrid = (map . mapMaybe) readCell
-  where
-    readCell '|' = Nothing
-    readCell '*' = Just Alive
-    readCell  _  = Just Dead
 
 board :: MonadFix m => Grid -> Auto m () Grid
 board g0 = proc _ -> do
@@ -95,6 +82,19 @@ cell c0 = switchF cell' (cell' c0) <<^ length . filter isAlive
 isAlive :: Cell -> Bool
 isAlive Alive = True
 isAlive Dead  = False
+
+showGrid :: Grid -> String
+showGrid = unlines . map (concatMap showCell)
+  where
+    showCell Alive = "*|"
+    showCell Dead  = "_|"
+
+readGrid :: [String] -> Grid
+readGrid = (map . mapMaybe) readCell
+  where
+    readCell '|' = Nothing
+    readCell '*' = Just Alive
+    readCell  _  = Just Dead
 
 -- utility
 rotateList :: [a] -> [a]
