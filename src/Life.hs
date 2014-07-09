@@ -1,6 +1,7 @@
 {-# LANGUAGE Arrows #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Main (main) where
 
@@ -16,13 +17,16 @@ import GHC.Generics
 import Prelude hiding          ((.), id)
 import System.Console.ANSI
 
+-- Types
 data Cell = Dead | Alive
           deriving (Show, Read, Generic)
 
 instance Serialize Cell
 
 type Grid = [[Cell]]
+type Neighborhood = [Cell]
 
+-- Starting grid.  A glider, a blinker, a boat, and a beehive.
 startingGrid :: Grid
 startingGrid = readGrid ["_|_|_|_|_|_|_|_|_|_|_|_|"
                         ,"_|_|_|_|_|_|_|_|_|_|_|_|"
@@ -33,14 +37,12 @@ startingGrid = readGrid ["_|_|_|_|_|_|_|_|_|_|_|_|"
                         ,"_|_|_|_|_|_|_|_|_|_|_|_|"
                         ,"_|_|_|_|_|_|_|_|_|*|_|_|"
                         ,"_|_|*|_|_|_|_|_|*|_|*|_|"
-                        ,"_|_|*|_|_|_|_|_|*|_|*|_|"
-                        ,"_|_|*|_|_|_|_|_|_|*|_|_|"
+                        ,"_|*|_|*|_|_|_|_|*|_|*|_|"
+                        ,"_|_|*|*|_|_|_|_|_|*|_|_|"
                         ,"_|_|_|_|_|_|_|_|_|_|_|_|"]
 
 main :: IO ()
-main = do
-    loop (board startingGrid)
-    clearScreen
+main = loop (board startingGrid)
   where
     loop a = do
       Output g a' <- stepAuto a ()
@@ -49,17 +51,40 @@ main = do
       _ <- getLine
       () <$ loop a'
 
-board :: MonadFix m => Grid -> Auto m () Grid
+-- the board Auto; takes an initial configuration and returns an
+--   automation. (An Auto ignoring its input and just steppin' along.)
+board :: forall m. MonadFix m => Grid -> Auto m () Grid
 board g0 = proc _ -> do
-    rec cells <- chunks c ^<< dZipAuto nop cells0 <<^ concat -< neighbors
+        -- zipAuto takes a list of Autos and creates a mega Auto that feeds
+        --   every input into every internal Auto and collects the output.
+        --   Here we zipAuto Autos representing each Cell...and feed a list
+        --   containing the neighbors for each cell.  Each cell updates
+        --   according to its neighbors, and the output is the updated list
+        --   of cells.
+    rec cellList <- dZipAuto nop cells0 -< concat neighbors
 
-        let neighborhoods = map ($ cells) allShifts
-            neighbors     = map transpose . transpose $ neighborhoods
+            -- the Grid of cells, because cellList is a flat list
+        let cellGrid      :: Grid
+            cellGrid      = chunks cols cellList
+            -- a list of every possible "shift" of 'cellGrid'
+            shiftedGrids  :: [Grid]
+            shiftedGrids  = map ($ cellGrid) allShifts
+            -- going across each Grid in 'shfitedGrids', and accumulating
+            --   the cells in every spot.  Basically returns a Grid of
+            --   Neighborhoods, where every spot is associated with
+            --   a Neighborhood.
+            -- Honestly I just found this by typing random things into
+            --   ghci until I found something that worked.
+            neighbors     :: [[Neighborhood]]
+            neighbors     = map transpose . transpose $ shiftedGrids
 
-    id -< cells
+    id -< cellGrid
   where
+    -- the starting list of Cell Autos, to be zipAuto'd
+    cells0 :: [Auto m Neighborhood Cell]
     cells0    = concatMap (map cell) g0
-    c         = length . head $ g0
+    cols      = length . head $ g0
+    -- Various shifting functions to calculate neighborhoods.
     shiftU    = rotateList
     shiftD    = reverse . rotateList . reverse
     shiftL    = map shiftU
@@ -67,18 +92,31 @@ board g0 = proc _ -> do
     allShifts = [ shiftU . shiftL , shiftU , shiftU . shiftR
                 , shiftR          ,          shiftL
                 , shiftD . shiftL , shiftD , shiftD . shiftR ]
+    -- special Neighborhood that keeps a dead cell dead & a live cell live.
+    --   Used for default Neighborhood in zipAuto.
+    nop :: Neighborhood
     nop       = replicate 2 Alive
 
-cell :: Monad m => Cell -> Auto m [Cell] Cell
+-- individual Cell Auto --- give it starting state, and it makes an Auto
+--   that takes in a Neighboorhood and returns the next state.
+-- switchFromF basically continually runs cell' (starting from the initial
+--   state), but every time cell' emits a blip to change its state,
+--   restarts cell' with the new state.
+cell :: forall m. Monad m => Cell -> Auto m Neighborhood Cell
 cell c0 = switchFromF cell' (cell' c0) <<^ length . filter isAlive
   where
+    -- Cell Auto that emits its current state and a Blip signaling a state
+    -- change.
+    cell' :: Cell -> Auto m Int (Cell, Blip Cell)
     cell' Alive = (fromBlips Alive &&& id) . tagBlips Dead  . became death
     cell' Dead  = (fromBlips Dead  &&& id) . tagBlips Alive . became spawn
 
+    -- predicates for swapping
     death, spawn :: Int -> Bool
     death = liftA2 (||) (< 2) (> 3)
     spawn = (== 3)
 
+-- utility
 isAlive :: Cell -> Bool
 isAlive Alive = True
 isAlive Dead  = False
@@ -96,9 +134,12 @@ readGrid = (map . mapMaybe) readCell
     readCell '*' = Just Alive
     readCell  _  = Just Dead
 
--- utility
+-- rotateList: [1,2,3,4] -> [2,3,4,1]
 rotateList :: [a] -> [a]
 rotateList = uncurry (flip (++)) . splitAt 1
 
+-- chunks up items in a list in groups of n.
+--       chunks 2 [1,2,3,4,5] -> [[1,2],[3,4],[5]]
 chunks :: Int -> [a] -> [[a]]
 chunks n = takeWhile (not.null) . unfoldr (Just . splitAt n)
+

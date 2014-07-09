@@ -94,14 +94,14 @@ main = do
         return gameAuto
 
     -- run through one iteration to output the current puzzle
-    -- 'initGame' is the game auto after going through one step
+    --   'initGame' is the game auto after going through one step
     let Output str initGame = runIdentity (stepAuto loadedGame "@display")
 
     -- print out out the current puzzle
     mapM_ putStrLn str
 
     -- here we go, start running the loop with the initialized game auto
-    -- 'finalGame' is the game after the loop has ended.
+    --   'finalGame' is the game after the loop has ended.
     finalGame  <- interactId initGame
 
     -- save the game; serialize and write 'finalGame'.
@@ -140,8 +140,9 @@ hangman wordlist g = proc inp -> do
         newstr <- stdRands (pick wordlist) g -< ()
 
         -- Puzzle, with the command and a fresh string if needed.
-        -- 'switchFromF' basically creates a new "game" with a new word
-        -- every time the internal wire emits a blip containing a new word.
+        --   'switchFromF' basically creates a new "game" with a new word
+        --   every time the internal wire emits a blip containing a new
+        --   word.
         puzz   <- switchFromF game initialize -< (hcomm, newstr)
 
         -- get wins and losses
@@ -165,8 +166,8 @@ hangman wordlist g = proc inp -> do
                                            <> display p1
 
 -- initial game...only here to "start" the real 'game' auto.  All it does
--- is emit a 'blip' with a word, which causes 'switchFromF' to create a new
--- game with that word.
+--   is emit a 'blip' with a word, which causes 'switchFromF' to create
+--   a new game with that word.
 initialize :: Monad m
            => Auto m (HMCommand, String) (PuzzleOut, Blip String)
 initialize = proc (_, newstr) -> do
@@ -174,9 +175,9 @@ initialize = proc (_, newstr) -> do
     id   -< (Puzz (blankPuzzle newstr) True, new)
 
 -- A single game with a single word.  Takes in commands and outputs
--- 'PuzzleOut's...or a blip containing the next mystery word.  'switchF'
--- takes this blip and creates a fresh 'game' out of it, starting the cycle
--- all over.
+--   'PuzzleOut's...or a blip containing the next mystery word.  'switchF'
+--   takes this blip and creates a fresh 'game' out of it, starting the
+--   cycle all over.
 game :: Monad m
      => String    -- ^ The mystery word(s)
      -> Auto m (HMCommand, String) (PuzzleOut, Blip String)

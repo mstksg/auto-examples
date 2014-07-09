@@ -2,9 +2,6 @@
 
 module Main (main) where
 
--- import Control.Auto.Effects
--- import Control.Auto.Run
--- import Control.Monad.IO.Class
 import Control.Auto hiding       (loop)
 import Control.Auto.Blip
 import Control.Auto.Serialize
@@ -24,7 +21,7 @@ main = do
     putStrLn "<< @quit to quit >>"
     putStrLn "<< @clear to clear >>"
 
-    -- loop through the 'loggerSwitch' wire, with implicit serialization
+    -- loop through the 'loggerReset wire, with implicit serialization
     loop $ serializing' loggingFP loggerReset
   where
     loop a = do
@@ -39,13 +36,14 @@ main = do
 
 
 -- loggerReset basically wraps around 'logger' --- listens for the Blip
--- coming from 'logger', and resets logger when it receives one.
+--   coming from 'logger', and resets logger when it receives one.
 loggerReset :: Monad m => Auto m (String, UTCTime) (Maybe String)
 loggerReset = resetFrom logger
 
 -- logger auto.  Takes in strings to log, or commands.  Outputs a 'Maybe
--- String', with 'Nothing' when it's "done"/quitting.  Also outputs
--- a 'Blip' that tells 'loggerSwitch' to swap out for a fresh logger auto.
+--   String', with 'Nothing' when it's "done"/quitting.  Also outputs
+--   a 'Blip' that tells 'loggerSwitch' to swap out for a fresh logger
+--   auto.
 logger :: Monad m
        => Auto m (String, UTCTime) (Maybe String, Blip ())
 --               ^        ^         ^             ^
