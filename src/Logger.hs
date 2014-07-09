@@ -61,7 +61,7 @@ logger = proc (input, time) -> do
         id     -< (mzero, clear)
 
       "@clear":_ -> do
-        clear <- now -< ()
+        clear <- immediately -< ()
         id     -< (return "Cleared!", clear)
 
       _          -> do
