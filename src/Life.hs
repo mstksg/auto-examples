@@ -61,14 +61,14 @@ board g0 = proc _ -> do
         --   containing the neighbors for each cell.  Each cell updates
         --   according to its neighbors, and the output is the updated list
         --   of cells.
-    rec cellList <- dZipAuto nop cells0 -< concat neighbors
+        -- 'neighbors' and 'cells' are grids of neighborhoods and
+        --   cells...so we use 'concat' to flatten it out and 'chunks c'
+        --   to re-chunk it back into a grid.
+    rec cells <- chunks c ^<< dZipAuto nop cells0 <<^ concat -< neighbors
 
-            -- the Grid of cells, because cellList is a flat list
-        let cellGrid      :: Grid
-            cellGrid      = chunks cols cellList
             -- a list of every possible "shift" of 'cellGrid'
-            shiftedGrids  :: [Grid]
-            shiftedGrids  = map ($ cellGrid) allShifts
+        let shiftedGrids  :: [Grid]
+            shiftedGrids  = map ($ cells) allShifts
             -- going across each Grid in 'shfitedGrids', and accumulating
             --   the cells in every spot.  Basically returns a Grid of
             --   Neighborhoods, where every spot is associated with
@@ -78,12 +78,12 @@ board g0 = proc _ -> do
             neighbors     :: [[Neighborhood]]
             neighbors     = map transpose . transpose $ shiftedGrids
 
-    id -< cellGrid
+    id -< cells
   where
     -- the starting list of Cell Autos, to be zipAuto'd
     cells0 :: [Auto m Neighborhood Cell]
     cells0    = concatMap (map cell) g0
-    cols      = length . head $ g0
+    c         = length . head $ g0
     -- Various shifting functions to calculate neighborhoods.
     shiftU    = rotateList
     shiftD    = reverse . rotateList . reverse
@@ -99,14 +99,13 @@ board g0 = proc _ -> do
 
 -- individual Cell Auto --- give it starting state, and it makes an Auto
 --   that takes in a Neighboorhood and returns the next state.
--- switchFromF basically continually runs cell' (starting from the initial
---   state), but every time cell' emits a blip to change its state,
---   restarts cell' with the new state.
+-- switchFromF basically continually runs cell' c0, but every time cell'
+--   emits a blip to change its state, restarts cell' with the new state.
 cell :: forall m. Monad m => Cell -> Auto m Neighborhood Cell
 cell c0 = switchFromF cell' (cell' c0) <<^ length . filter isAlive
   where
     -- Cell Auto that emits its current state and a Blip signaling a state
-    -- change.
+    --   change.
     cell' :: Cell -> Auto m Int (Cell, Blip Cell)
     cell' Alive = (fromBlips Alive &&& id) . tagBlips Dead  . became death
     cell' Dead  = (fromBlips Dead  &&& id) . tagBlips Alive . became spawn
