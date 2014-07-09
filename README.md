@@ -67,7 +67,58 @@ automatically re-loads the saved state on the program initialization.
 Lots of concepts demonstrated here.  In fact, this was one of the motivating
 reasons for the entire *auto* library in the first place.
 
-(to be continued)
+First, a "real world" interface; the Auto is operated and run over an IRC
+server using the [simpleirc][] library.  The library waits on messages, runs
+the Auto, sends out the outputs, and stores the new Auto.
+
+[simpleirc]: http://hackage.haskell.org/package/simpleirc
+
+Secondly, the "monoidal" nature of Auto is taken full advantage of here. Each
+individual bot module is a full fledged bot (of type `ChatBot m`, or `ChatBot'
+m`).  The "final" bot is the `mconcat`/monoid sum of individual modules.  The
+monoid nature means that pairs of bots can be combined and modified together
+and combined with other bots, etc.
+
+Like legos! :D
+
+Third, serializing individual components of wires "automatically".  We don't
+serialize the entire chatbot; we can simply serialize individual Auto
+components in the chain.  This is because of the type of `serializing' fp`:
+
+```haskell
+serializing' fp :: MonadIO => Auto m a b -> Auto m a b
+```
+
+It basically takes an Auto and returns a Auto that is identical in every
+way...except self-reloading and self-serializing.  Whenever you use that
+transformed Auto as a component of any other one, that individual component
+will be self-reloading and self-serializing, even if it's embedded deep in a
+complex composition.
+
+```haskell
+f (serializing' fp a1) (serializing' fp a2)
+= serializing' fp (f a1 a2)
+```
+
+Also, there is the demonstration of using "lifters", like `perRoom` to
+transform a `ChatBot` who can only send messages back to the channel it
+received messages to a `ChatBot` who can send messages to any channel.  They
+behave the same way --- but now they can be combined with other such bots.  In
+this way, you can write "limited bots", and still have them "play well" and
+combine with other bots --- inspired by the principles of Gabriel Gonzalez's
+[Functor Design Pattern][fdp].
+
+[fdp]: http://www.haskellforall.com/2012/09/the-functor-design-pattern.html
+
+The individual bots themselves all demonstrate usage of common Auto
+combinators, like `mkAccum` (which modifies the state with input continually,
+with the given function) --- also much usage of the `Blip` mechanism and
+semantics --- much of the bots respond to "blips" --- like detected user
+commands, and the day changing.
+
+Working with streams of blips, "scanning over them" (like `mkAccum` but with
+blips), and consolidating blip streams back into normal streams are all
+demonstrated.
 
 ### life
 

@@ -207,11 +207,11 @@ instance Serialize Day where
     get = ModifiedJulianDay <$> get
     put = put . toModifiedJulianDay
 
--- | Boring low-level MIRC stuff; mostly stuff from the simple-irc library.
+-- | Boring low-level MIRC stuff; mostly stuff from the simpleirc library.
 --   Don't worry about this too much :)  For more information, read the
---   simple-irc documentation.
+--   simpleirc documentation.
 
--- ircConf: IRC configuration for simple-irc.  Specifies server, name,
+-- ircConf: IRC configuration for simpleirc.  Specifies server, name,
 --   channels, and the Privmsg handler.
 ircConf :: MVar (ChatBot IO) -> IrcConfig
 ircConf a = (mkDefaultConfig "irc.freenode.org" botName)
@@ -229,7 +229,7 @@ launchIRC a0 cont = do
 
 -- onMessage: the Privmsg handler.  On every Privmsg, pull the Auto out of
 --   the MVar, step it to get the results, and put the modified Auto back
---   into the MVar.  Check out the documentation for simple-irc and
+--   into the MVar.  Check out the documentation for simpleirc and
 --   'Control.Concurrent' for more information.
 onMessage :: MVar (ChatBot IO) -> EventFunc
 onMessage amvr server msg = do

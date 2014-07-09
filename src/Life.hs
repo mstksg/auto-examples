@@ -21,10 +21,10 @@ import System.Console.ANSI
 data Cell = Dead | Alive
           deriving (Show, Read, Generic)
 
-instance Serialize Cell
-
 type Grid = [[Cell]]
 type Neighborhood = [Cell]
+
+instance Serialize Cell
 
 -- Starting grid.  A glider, a blinker, a boat, and a beehive.
 startingGrid :: Grid
