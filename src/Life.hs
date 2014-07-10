@@ -74,10 +74,8 @@ board g0 = proc _ -> do
             --   the cells in every spot.  Basically returns a Grid of
             --   Neighborhoods, where every spot is associated with
             --   a Neighborhood.
-            -- Honestly I just found this by typing random things into
-            --   ghci until I found something that worked.
             neighbors    :: [[Neighborhood]]
-            neighbors    = map transpose . transpose $ shiftedGrids
+            neighbors    = gatherNeighbors shiftedGrids
 
     id -< cells
   where
@@ -93,6 +91,9 @@ board g0 = proc _ -> do
     allShifts = [ shiftU . shiftL , shiftU , shiftU . shiftR
                 , shiftR          ,          shiftL
                 , shiftD . shiftL , shiftD , shiftD . shiftR ]
+    -- Honestly I just found this by typing random things into
+    --   ghci until I found something that worked.
+    gatherNeighbors = map transpose . transpose
     -- special Neighborhood that keeps a dead cell dead & a live cell live.
     --   Used for default Neighborhood in zipAuto.
     nop :: Neighborhood
