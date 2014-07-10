@@ -81,7 +81,19 @@ and combined with other bots, etc.
 
 Like legos! :D
 
-Third, serializing individual components of wires "automatically".  We don't
+Third --- there is no "global chatbot state".  That is, *every module*
+maintains *its own internal state*, isolated and unrelated to the other
+modules.  In the "giant state monad" approach, *even with* using zoom and
+stuff from lens...every time you add a stateful module, you *have to change
+the global state type*.  That is, you'd have to "fit in" the room for the new
+state in your global state type.
+
+In this way, adding a module is as simple as just adding another `(<>)` or
+item to the `mconcat` list.  Each module is completely self-contained and
+maintains its own state; adding a module does not affect a single aspect of
+any other part of the code base.
+
+Fourth, serializing individual components of wires "automatically".  We don't
 serialize the entire chatbot; we can simply serialize individual Auto
 components in the chain.  This is because of the type of `serializing' fp`:
 

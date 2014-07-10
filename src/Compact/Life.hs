@@ -65,9 +65,8 @@ board g0 = proc _ -> do
     shiftD    = reverse . rotateList . reverse
     shiftL    = map shiftU
     shiftR    = map shiftD
-    allShifts = [ shiftU . shiftL , shiftU , shiftU . shiftR
-                , shiftR          ,          shiftL
-                , shiftD . shiftL , shiftD , shiftD . shiftR ]
+    allShifts = [ shiftU . shiftL , shiftU , shiftU . shiftR , shiftR
+                , shiftL , shiftD . shiftL , shiftD , shiftD . shiftR ]
     nop       = replicate 2 Alive
 
 cell :: forall m. Monad m => Cell -> Auto m Neighborhood Cell
