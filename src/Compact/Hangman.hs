@@ -96,13 +96,13 @@ hangman :: Monad m
         -> Auto m String (Maybe String)
 hangman wordlist g = proc inp -> do
     let comm = case words inp of
-                 "@help"   :_      -> Just Help
-                 "@quit"   :_      -> Just Quit
-                 "@display":_      -> Just (HM Display)
-                 "@solve"  :ws     -> Just . HM . Solve
-                                    . map toLower . unwords $ ws
-                 "@new"    :_      -> Just (HM New)
-                 [[c]] | isAlpha c -> Just . HM . Guess . toLower $ c
+                 "@help"   : _     -> Just Help
+                 "@quit"   : _     -> Just Quit
+                 "@display": _     -> Just (HM Display)
+                 "@solve"  : ws    -> Just . HM . Solve
+                                   . map toLower $ unwords ws
+                 "@new"    : _     -> Just (HM New)
+                 [[c]] | isAlpha c -> Just . HM . Guess $ toLower c
                  _                 -> Nothing
 
     case comm of
