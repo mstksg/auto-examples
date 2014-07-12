@@ -24,6 +24,7 @@ data Cell = Dead | Alive
 type Grid = [[Cell]]
 type Neighborhood = [Cell]
 
+-- make Cell serializable for stateful Autos to work
 instance Serialize Cell
 
 -- Starting grid.  A glider, a blinker, a boat, and a beehive.
