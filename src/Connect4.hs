@@ -1,16 +1,19 @@
 {-# LANGUAGE Arrows #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Main (main) where
 
 import Control.Auto
-import Control.Auto.Collection
 import Control.Auto.Blip
-import Control.Auto.Switch
+import Control.Auto.Collection
+import Control.Auto.Time
 import Control.Auto.Generate
 import Control.Auto.Run
+import Control.Auto.Switch
 import Control.Monad
+import Control.Monad.Fix
 import Data.Foldable
 import Data.List hiding          (concat, all, any, and)
 import Data.Map.Strict           (Map)
@@ -60,35 +63,40 @@ showBoard = unlines . map concat
     fill :: [Piece] -> [String]
     fill = map (++ "|") . reverse . take boardHeight . (++ repeat "_") . map show
 
-showOut :: (Board, Maybe (Maybe Player)) -> String
-showOut (b,mmp) = unlines [showBoard b, show mmp]
+showOut :: ((Board, Bool), Maybe (Maybe Player)) -> String
+showOut ((b,gm),mmp) = unlines [showBoard b, show gm, show mmp]
 
 main :: IO ()
 main = void $ interactId (fmap showOut <$> duringRead (board emptyBoard X))
 -- main = void $ interactId (fmap show <$> duringRead (column []))
 
-board :: Monad m => Board -> Player -> Auto m Int (Board, Maybe (Maybe Player))
+board :: MonadFix m => Board -> Player -> Auto m Int ((Board, Bool), Maybe (Maybe Player))
 board b0 p0 = switchFromF gameOver (board' b0 p0)
   where
-    gameOver (b, w) = (pure (b, Just w) &&& id) . never
+    gameOver (b, w) = (pure ((b, False), Just w) &&& id) . never
 
--- TODO: feedback if valid move
-board' :: Monad m => Board -> Player -> Auto m Int ((Board, Maybe (Maybe Player)), Blip (Board, Maybe Player))
+board' :: MonadFix m => Board -> Player -> Auto m Int (((Board, Bool), Maybe (Maybe Player)), Blip (Board, Maybe Player))
 board' b0 p0 = proc i -> do
-    currPlayer <- iterator opp p0 -< ()
-    brd        <- toList . fill ^<< gather col -< (i, currPlayer)
+    rec currPlayer <- mkAccum swapPlayer p0 . delay False -< goodMove
+        brd        <- toList . fill <$> gather col -< (i, currPlayer)
+        lastBrd    <- delay b0 -< brd
+        let goodMove = lastBrd /= brd
+
     let winner | isWinner currPlayer brd  = Just (Just currPlayer)
                | length (concat brd) >= d = Just Nothing
                | otherwise                = Nothing
     win <- onJusts -< winner
-    id -< ((brd, winner), (brd,) <$> win)
+    id -< (((brd, goodMove), winner), (brd,) <$> win)
   where
-    d = boardHeight * boardWidth
-    fill = M.unionWith (<>) (M.fromList (zip [1..] b0))
-    col n | n <= 0 || n > length b0 = pure Nothing
-          | otherwise               = Just <$> column (b0 !! (n - 1))
+    inRange n = n > 0 && n <= length b0
+    d         = boardHeight * boardWidth
+    fill      = M.unionWith (<>) (M.fromList (zip [1..] b0))
+    col n | inRange n = Just <$> column (b0 !! (n - 1))
+          | otherwise = pure Nothing
     opp X = O
     opp O = X
+    swapPlayer p s | s         = opp p
+                   | otherwise = p
 
 column :: Monad m => [Piece] -> Auto m Piece [Piece]
 column = mkAccum (\ps p -> take boardHeight (ps ++ [p]))
