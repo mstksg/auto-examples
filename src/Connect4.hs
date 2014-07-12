@@ -5,21 +5,23 @@
 
 module Main (main) where
 
-import Control.Auto
+import Control.Auto hiding       (loop)
 import Control.Auto.Blip
 import Control.Auto.Collection
-import Control.Auto.Time
 import Control.Auto.Generate
 import Control.Auto.Run
 import Control.Auto.Switch
+import Control.Auto.Time
 import Control.Monad
 import Control.Monad.Fix
 import Data.Foldable
 import Data.List hiding          (concat, all, any, and)
 import Data.Map.Strict           (Map)
 import Data.Serialize
+import Data.Serialize
 import GHC.Generics
 import Prelude hiding            ((.), id, concat, all, any, and)
+import System.Console.ANSI
 import qualified Data.Map.Strict as M
 
 type Board = [[Piece]]
@@ -27,7 +29,13 @@ type Player = Piece
 
 data Piece = X | O deriving (Show, Read, Eq, Generic)
 
+data BoardOut = BoardOut { boBoard  :: Board
+                         , boWinner :: Maybe (Maybe Player)
+                         , boNext   :: Player
+                         } deriving Generic
+
 instance Serialize Piece
+instance Serialize BoardOut
 
 boardWidth, boardHeight :: Int
 boardWidth = 7
@@ -49,44 +57,56 @@ isWinner p b = any (any hasFour) [ filled , transpose filled
     wedgeUp   = transpose $ zipWith (++) wedge filled
     wedgeDown = transpose $ zipWith (++) (reverse wedge) filled
 
--- -- for testing only
--- addPiece :: Piece -> Int -> Board -> Board
--- addPiece p n = zipWith edit [1..]
---   where
---     edit i r | n == i    = p : r
---              | otherwise = r
-
 showBoard :: Board -> String
-showBoard = unlines . map concat
+showBoard = unlines   . map concat
           . transpose . map fill
   where
     fill :: [Piece] -> [String]
     fill = map (++ "|") . reverse . take boardHeight . (++ repeat "_") . map show
 
-showOut :: ((Board, Bool), Maybe (Maybe Player)) -> String
-showOut ((b,gm),mmp) = unlines [showBoard b, show gm, show mmp]
+showOut :: BoardOut -> String
+showOut (BoardOut brd winner nextP) =
+    unlines [ unwords (map show [1..boardWidth])
+            , showBoard brd
+            , case winner of
+                Nothing -> "To play: " ++ show nextP
+                Just w  -> "Game over! " ++ case w of
+                                              Just p  -> "Winner: " ++ show p
+                                              Nothing -> "Tie game."
+            ]
 
 main :: IO ()
-main = void $ interactId (fmap showOut <$> duringRead (board emptyBoard X))
--- main = void $ interactId (fmap show <$> duringRead (column []))
+main = loop (duringRead (board emptyBoard X))
+  where
+    loop a = do
+      inp <- getLine
+      Output b a' <- stepAuto a inp
+      case b of
+        Nothing      -> return ()
+        Just (bo, _) -> do
+          clearScreen
+          putStrLn (showOut bo)
+          loop a'
+-- main = void $ interactId (fmap (showOut . fst) <$> duringRead (board emptyBoard X))
 
-board :: MonadFix m => Board -> Player -> Auto m Int ((Board, Bool), Maybe (Maybe Player))
+board :: MonadFix m => Board -> Player -> Auto m Int (BoardOut, Bool)
 board b0 p0 = switchFromF gameOver (board' b0 p0)
   where
-    gameOver (b, w) = (pure ((b, False), Just w) &&& id) . never
+    gameOver b = (pure (b, False) &&& id) . never
 
-board' :: MonadFix m => Board -> Player -> Auto m Int (((Board, Bool), Maybe (Maybe Player)), Blip (Board, Maybe Player))
+board' :: MonadFix m => Board -> Player -> Auto m Int ((BoardOut, Bool), Blip BoardOut)
 board' b0 p0 = proc i -> do
-    rec currPlayer <- mkAccum swapPlayer p0 . delay False -< goodMove
-        brd        <- toList . fill <$> gather col -< (i, currPlayer)
-        lastBrd    <- delay b0 -< brd
+    rec currP   <- mkAccum swapPlayer p0 . delay False -< goodMove
+        brd     <- toList . fill <$> gather col -< (i, currP)
+        lastBrd <- delay b0 -< brd
         let goodMove = lastBrd /= brd
 
-    let winner | isWinner currPlayer brd  = Just (Just currPlayer)
+    let winner | isWinner currP brd       = Just (Just currP)
                | length (concat brd) >= d = Just Nothing
                | otherwise                = Nothing
     win <- onJusts -< winner
-    id -< (((brd, goodMove), winner), (brd,) <$> win)
+    let boardOut = BoardOut brd winner (opp currP)
+    id -< ((boardOut, goodMove), boardOut <$ win)
   where
     inRange n = n > 0 && n <= length b0
     d         = boardHeight * boardWidth
