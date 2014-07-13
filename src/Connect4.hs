@@ -11,19 +11,21 @@ import Control.Auto.Collection
 import Control.Auto.Generate
 import Control.Auto.Run
 import Control.Auto.Switch
-import Data.Functor.Identity
 import Control.Auto.Time
 import Control.Monad
 import Control.Monad.Fix
 import Control.Monad.IO.Class
 import Data.Foldable
+import Data.Functor.Identity
 import Data.List hiding          (concat, all, any, and)
 import Data.Map.Strict           (Map)
+import Data.Maybe
 import Data.Serialize
 import Data.Serialize
 import GHC.Generics
 import Prelude hiding            ((.), id, concat, all, any, and)
 import System.Console.ANSI
+import System.Random
 import qualified Data.Map.Strict as M
 
 type Board = [[Piece]]
@@ -36,22 +38,9 @@ data BoardOut = BoardOut { _boBoard  :: Board
                          , _boNext   :: Player
                          } deriving Generic
 
-data Interface = Human | AI
+data InterfaceType = Human | AI
 
-data QueryT m a = QReturn a
-                | QLift (m (QueryT m a))
-                | QAsk String (String -> QueryT m a)
-
-instance Monad m => Functor (QueryT m)
-
-instance Monad m => Monad (QueryT m) where
-    return  = QReturn
-    x >>= f = case x of
-                QReturn x' -> f x'
-                QLift mx   -> QLift (liftM (>>= f) mx)
-                QAsk str n -> QAsk str $ \r -> n r >>= f
-
-type Query = QueryT Identity
+type Interface m = BoardOut -> m (Maybe Int)
 
 instance Serialize Piece
 instance Serialize BoardOut
@@ -62,6 +51,9 @@ boardHeight = 6
 
 emptyBoard :: Board
 emptyBoard = replicate boardWidth []
+
+emptyBoardOut :: BoardOut
+emptyBoardOut = BoardOut emptyBoard Nothing X
 
 isWinner :: Player -> Board -> Bool
 isWinner p b = any (any hasFour) [ filled , transpose filled
@@ -95,28 +87,55 @@ showOut (BoardOut brd winner nextP) =
             ]
 
 main :: IO ()
-main = loop (duringRead (board emptyBoard X))
+main = do
+    res <- driver human cpuRandom emptyBoardOut (board emptyBoard X)
+    putStrLn (showOut res)
+
+-- main = loop (duringRead (board emptyBoard X))
+--   where
+--     loop a = do
+--       inp <- getLine
+--       Output b a' <- stepAuto a inp
+--       case b of
+--         Nothing      -> return ()
+--         Just (bo, _) -> do
+--           clearScreen
+--           putStrLn (showOut bo)
+--           loop a'
+
+driver :: Interface IO
+       -> Interface IO
+       -> BoardOut
+       -> Auto Identity Int (BoardOut, Bool)
+       -> IO BoardOut
+driver p1 p2 bout a = do
+    case _boWinner bout of
+      Nothing -> do
+        move <- interface bout
+        case move of
+          Just m -> do
+            let Output (bout',_) a' = runIdentity . stepAuto a $ m
+            driver p1 p2 bout' a'
+          Nothing -> do
+            putStrLn "Forfeit!"
+            return bout
+      Just _ -> do
+        return bout
   where
-    loop a = do
-      inp <- getLine
-      Output b a' <- stepAuto a inp
-      case b of
-        Nothing      -> return ()
-        Just (bo, _) -> do
-          clearScreen
-          putStrLn (showOut bo)
-          loop a'
+    interface = case _boNext bout of
+                  X -> p1
+                  O -> p2
 
-runQuery :: MonadIO m => QueryT m a -> m a
-runQuery (QReturn x)  = return x
--- runQuery (QLift   x)  = x
-runQuery (QAsk str f) = do
-    res <- liftIO $ putStrLn str
-                 >> getLine
-    runQuery (f res)
 
-human :: Auto Query BoardOut (Maybe Int)
-human = undefined
+human :: Interface IO
+human bout = do
+    clearScreen
+    putStrLn (showOut bout)
+    fmap fst . listToMaybe . reads <$> getLine
+
+cpuRandom :: Interface IO
+cpuRandom _ = Just <$> randomRIO (1, boardWidth)
+
 
 
 board :: MonadFix m => Board -> Player -> Auto m Int (BoardOut, Bool)
