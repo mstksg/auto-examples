@@ -140,9 +140,10 @@ aspects, a demonstration of the `rec`/`ArrowLoop` mechanisms for recursive,
 graph-like Auto connections.
 
 I consider this to be another compelling demonstration of the power of
-denotative style.  The entire "game logic" is 3-4 lines long, depending on how
-you cut it (not including helper functions) and (as I would hope) is very
-readable.  Some nice practice with the various `Blip` combinators, as well!
+denotative style.  The thing is laid out very graph-like, using recursive
+bindings, and the entire "step" is, at the (abstracted away) low-level,
+finding a fixed point of a graph of functions.  Some nice practice with the
+various `Blip` combinators, as well!
 
 [cgol]: http://en.wikipedia.org/wiki/Conway's_Game_of_Life
 
