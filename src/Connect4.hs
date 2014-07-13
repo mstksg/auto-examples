@@ -11,9 +11,11 @@ import Control.Auto.Collection
 import Control.Auto.Generate
 import Control.Auto.Run
 import Control.Auto.Switch
+import Data.Functor.Identity
 import Control.Auto.Time
 import Control.Monad
 import Control.Monad.Fix
+import Control.Monad.IO.Class
 import Data.Foldable
 import Data.List hiding          (concat, all, any, and)
 import Data.Map.Strict           (Map)
@@ -29,10 +31,27 @@ type Player = Piece
 
 data Piece = X | O deriving (Show, Read, Eq, Generic)
 
-data BoardOut = BoardOut { boBoard  :: Board
-                         , boWinner :: Maybe (Maybe Player)
-                         , boNext   :: Player
+data BoardOut = BoardOut { _boBoard  :: Board
+                         , _boWinner :: Maybe (Maybe Player)
+                         , _boNext   :: Player
                          } deriving Generic
+
+data Interface = Human | AI
+
+data QueryT m a = QReturn a
+                | QLift (m (QueryT m a))
+                | QAsk String (String -> QueryT m a)
+
+instance Monad m => Functor (QueryT m)
+
+instance Monad m => Monad (QueryT m) where
+    return  = QReturn
+    x >>= f = case x of
+                QReturn x' -> f x'
+                QLift mx   -> QLift (liftM (>>= f) mx)
+                QAsk str n -> QAsk str $ \r -> n r >>= f
+
+type Query = QueryT Identity
 
 instance Serialize Piece
 instance Serialize BoardOut
@@ -87,7 +106,18 @@ main = loop (duringRead (board emptyBoard X))
           clearScreen
           putStrLn (showOut bo)
           loop a'
--- main = void $ interactId (fmap (showOut . fst) <$> duringRead (board emptyBoard X))
+
+runQuery :: MonadIO m => QueryT m a -> m a
+runQuery (QReturn x)  = return x
+-- runQuery (QLift   x)  = x
+runQuery (QAsk str f) = do
+    res <- liftIO $ putStrLn str
+                 >> getLine
+    runQuery (f res)
+
+human :: Auto Query BoardOut (Maybe Int)
+human = undefined
+
 
 board :: MonadFix m => Board -> Player -> Auto m Int (BoardOut, Bool)
 board b0 p0 = switchFromF gameOver (board' b0 p0)
