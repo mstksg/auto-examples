@@ -7,6 +7,11 @@ much change.
 
 [auto]: https://github.com/mstksg/auto
 
+Before reading this, check out the [auto README][arm] for a brief overview of
+the *auto* library, and its main goals and philosophies :)
+
+[arm]: https://github.com/mstksg/auto/blob/master/README.md
+
 As things are still in development, here is the best way to install and run
 these:
 
