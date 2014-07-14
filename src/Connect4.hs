@@ -139,8 +139,8 @@ human bout = do
     putStrLn (showOut bout)
     fmap fst . listToMaybe . reads <$> getLine
 
-cpuRandom :: Interface IO
-cpuRandom _ = Just <$> randomRIO (1, boardWidth)
+-- cpuRandom :: Interface IO
+-- cpuRandom _ = Just <$> randomRIO (1, boardWidth)
 
 cpuMiniMax :: Int -> Interface IO
 cpuMiniMax lim bout | lim <= 0  = Just <$> randomRIO (1, boardWidth)
@@ -181,14 +181,13 @@ cpuMiniMax lim bout | lim <= 0  = Just <$> randomRIO (1, boardWidth)
               _ -> do
                 let minis  = mini (l - 1) a'
                     miniVal | l <= 0     = BIn 0
-                            | null minis = BIn 20
-                            | otherwise  = snd . head $ minis
+                            | otherwise  = case minis of
+                                             Nothing    -> BIn 20
+                                             Just (_,v) -> v
                 return (m, miniVal)
-    mini :: Int -> Auto Identity Int BoardOut -> [(Int, Bounder Double)]
-    mini l a = fromMaybe [] . listToMaybe
-             . reverse
-             . groupBy ((==) `on` snd)
-             . sortBy (comparing snd)
+    mini :: Int -> Auto Identity Int BoardOut -> Maybe (Int, Bounder Double)
+    mini l a = listToMaybe
+             . sortBy (flip (comparing snd))
              $ moves
       where
         moves :: [(Int, Bounder Double)]
