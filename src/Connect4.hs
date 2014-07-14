@@ -103,7 +103,7 @@ showOut (BoardOut brd winner nextP _) =
 
 main :: IO ()
 main = do
-    res <- driver human (cpuMiniMax 2) emptyBoardOut (board emptyBoard X)
+    res <- driver human (cpuMiniMax 4) emptyBoardOut (board emptyBoard X)
     putStrLn (showOut res)
 
 driver :: Interface IO
@@ -169,22 +169,21 @@ cpuMiniMax lim bout = do
             let Output bout' a'   = runIdentity $ stepAuto a m
             guard . not $ _boFailed bout'
             guard $ if _boNext bout' == X then True else error "yo"
-            guard $ if l >= 2 then traceShow (l, m) (traceShow (_boBoard bout') True)
-                              else True
+            -- guard $ if l >= 2 then traceShow (l, m) (traceShow (_boBoard bout') True)
+            --                   else True
 
             case _boWinner bout' of
-              Just r | r == Just currP -> return ([m], BIn (-100))
-                     | r == Nothing    -> return ([m], BIn 100)
-                     | otherwise       -> error "hey, what is going on maxi"
+              Just r | r == Just currP -> return ([m], BMin)
+                     | otherwise       -> return ([m], BIn 90)
               _ -> do
-                let minis  = mini bout' m (l - 1) a'
+                let minis  = mini (l - 1) a'
                     miniVal | l <= 0 = ([], BIn 0)
                             | null minis = ([], BIn 20)
                             | otherwise            = head minis
                     (mp,mv) = miniVal
                 return (m:mp, mv)
-    mini :: BoardOut -> Int -> Int -> Auto Identity Int BoardOut -> [([Int], Bounder Double)]
-    mini bo bf l a = fromMaybe [] . listToMaybe
+    mini :: Int -> Auto Identity Int BoardOut -> [([Int], Bounder Double)]
+    mini l a = fromMaybe [] . listToMaybe
              . reverse
              . groupBy ((==) `on` snd)
              . sortBy (comparing snd)
@@ -197,12 +196,13 @@ cpuMiniMax lim bout = do
             guard . not $ _boFailed bout'
             guard $ if _boNext bout' == O then True else error "yo"
             case _boWinner bout' of
-              Just r | r == Just (opp currP) -> if False then traceShow ((l, bf, -m)) (trace (showOut bo) (trace (showOut bout') (return ([-m], BIn 90))))
+              Just r | r == Just (opp currP) -> return ([-m], BMax)
+              -- Just r | r == Just (opp currP) -> if False then traceShow ((l, bf, -m)) (trace (showOut bo) (trace (showOut bout') (return ([-m], BIn 90))))
               -- Just r | r == Just (opp currP) -> if l >= 1 then traceShow ((l, bf, -m)) (trace (showOut bo) (trace (showOut bout') (return ([-m], BIn 90))))
               -- Just r | r == Just (opp currP) -> if False then traceShow ((l, -m)) (trace (showOut bout') (return ([-m], BIn 90)))
-                                                          else return ([-m], BIn 90)
-                     | r == Nothing    -> return ([-m], BIn (-90))
-                     | otherwise             -> error "hey what is going on mini"
+                                                          -- else return ([-m], BIn 90)
+                     | otherwise    -> return ([-m], BIn (-90))
+                     -- | otherwise             -> error "hey what is going on mini"
               _ -> do
                 let maxis  = maxi (l - 1) a'
                     maxiVal | l <= 0 = ([], BIn 0)
