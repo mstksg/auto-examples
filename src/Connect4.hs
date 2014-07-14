@@ -119,7 +119,7 @@ driver p1 p2 bout a =
 
 human :: Interface IO
 human bout = do
-    clearScreen
+    -- clearScreen
     when (_boFailed bout) $ putStrLn "Bad move!"
 
     putStrLn (showOut bout)
@@ -129,10 +129,19 @@ cpuRandom :: Interface IO
 cpuRandom _ = Just <$> randomRIO (1, boardWidth)
 
 cpuMiniMax :: Int -> Interface IO
-cpuMiniMax lim (BoardOut b w n f) = return . listToMaybe $ maxi lim (board b n)
+cpuMiniMax lim (BoardOut b w n f) = do
+    let res = maxi lim (board b n)
+        res' | null res  = [1 .. boardWidth]
+             | otherwise = res
+        numr = length res' - 1
+    print res
+    p <- randomRIO (0, numr)
+    return $ Just (res' !! p)
   where
     maxi :: Int -> Auto Identity Int BoardOut -> [Int]
-    maxi l a | null wins = filter (`notElem` minis) [1 .. boardWidth]
+    maxi l a | null wins = if l > 0
+                             then filter (`notElem` minis) [1 .. boardWidth]
+                             else []
              | otherwise = map grab wins
       where
         options :: [(Maybe (Maybe Player), (Int, Auto Identity Int BoardOut))]
@@ -142,10 +151,12 @@ cpuMiniMax lim (BoardOut b w n f) = return . listToMaybe $ maxi lim (board b n)
             guard . not $ _boFailed bout
             guard . not $ _boWinner bout == Just Nothing
             return (_boWinner bout, (m, a'))
-        (wins, notwins) = partition ((== Just (Just n)) . fst) options
-        minis = notwins >>= \(_, (_, a')) -> mini (l - 1) a'
+        (wins, _) = partition ((== Just (Just n)) . fst) options
+        minis = options >>= \(_, (_, a')) -> mini (l - 1) a'
     mini :: Int -> Auto Identity Int BoardOut -> [Int]
-    mini l a | null losses = filter (`notElem` maxis) [1 .. boardWidth]
+    mini l a | null losses = if l > 0
+                               then filter (`notElem` maxis) [1 .. boardWidth]
+                               else []
              | otherwise   = map grab losses
       where
         options = do
@@ -153,8 +164,8 @@ cpuMiniMax lim (BoardOut b w n f) = return . listToMaybe $ maxi lim (board b n)
           let Output bout a' = runIdentity $ stepAuto a m
           guard . not $ _boFailed bout
           return (_boWinner bout, (m, a'))
-        (losses, notlosses) = partition ((== Just (Just (opp n))) . fst) options
-        maxis = notlosses >>= \(_, (_, a')) -> maxi (l - 1) a'
+        (losses, _) = partition ((== Just (Just (opp n))) . fst) options
+        maxis = options >>= \(_, (_, a')) -> maxi (l - 1) a'
     grab (_, (m, _)) = m
     -- maxi :: Int -> Auto Identity Int BoardOut -> [(Int, Maybe (Maybe Player))]
     -- maxi l a | null wins = if l == 0
