@@ -18,12 +18,12 @@ import Control.Monad
 import Control.Monad.Fix
 import Data.Foldable
 import Data.Functor.Identity
-import Data.List hiding          (concat, all, any, and, concatMap)
+import Data.List hiding          (concat, all, any, and, concatMap, notElem)
 import Data.Maybe
 import Data.Ord
 import Data.Serialize
 import GHC.Generics
-import Prelude hiding            ((.), id, concat, all, any, and, concatMap)
+import Prelude hiding            ((.), id, concat, all, any, and, concatMap, notElem)
 import System.Console.ANSI
 import System.Random
 import qualified Data.Map.Strict as M
@@ -129,12 +129,10 @@ cpuRandom :: Interface IO
 cpuRandom _ = Just <$> randomRIO (1, boardWidth)
 
 cpuMiniMax :: Int -> Interface IO
-cpuMiniMax lim (BoardOut b w n f) = return . fmap fst . listToMaybe $ maxi lim (board b n)
+cpuMiniMax lim (BoardOut b w n f) = return . listToMaybe $ maxi lim (board b n)
   where
-    maxi :: Int -> Auto Identity Int BoardOut -> [(Int, Maybe (Maybe Player))]
-    maxi l a | null wins = if l == 0
-                             then map grab notwins
-                             else sortBy (\(_,w1) (_,w2) -> sortPri w1 w2) (concatMap getMini notwins)
+    maxi :: Int -> Auto Identity Int BoardOut -> [Int]
+    maxi l a | null wins = filter (`notElem` minis) [1 .. boardWidth]
              | otherwise = map grab wins
       where
         options :: [(Maybe (Maybe Player), (Int, Auto Identity Int BoardOut))]
@@ -142,15 +140,12 @@ cpuMiniMax lim (BoardOut b w n f) = return . fmap fst . listToMaybe $ maxi lim (
             m <- [1 .. boardWidth]
             let Output bout a' = runIdentity $ stepAuto a m
             guard . not $ _boFailed bout
-            -- guard . not $ _boWinner bout == Just Nothing
+            guard . not $ _boWinner bout == Just Nothing
             return (_boWinner bout, (m, a'))
         (wins, notwins) = partition ((== Just (Just n)) . fst) options
-        getMini (_, (_, a')) = mini (l - 1) a'
-    mini :: Int -> Auto Identity Int BoardOut -> [(Int, Maybe (Maybe Player))]
-    mini l a | null losses = if l == 0
-                               then map grab notlosses
-                               -- else concatMap getMaxi notlosses
-                               else sortBy (\(_,w1) (_,w2) -> sortPri w2 w1) (concatMap getMaxi notlosses)
+        minis = notwins >>= \(_, (_, a')) -> mini (l - 1) a'
+    mini :: Int -> Auto Identity Int BoardOut -> [Int]
+    mini l a | null losses = filter (`notElem` maxis) [1 .. boardWidth]
              | otherwise   = map grab losses
       where
         options = do
@@ -159,22 +154,52 @@ cpuMiniMax lim (BoardOut b w n f) = return . fmap fst . listToMaybe $ maxi lim (
           guard . not $ _boFailed bout
           return (_boWinner bout, (m, a'))
         (losses, notlosses) = partition ((== Just (Just (opp n))) . fst) options
-        getMaxi (_, (_, a')) = maxi (l - 1) a'
-    grab (bow, (m, _)) = (m, bow)
-    sortPri :: Maybe (Maybe Player) -> Maybe (Maybe Player) -> Ordering
-    sortPri r1 r2 = case (r1, r2) of
-                      (Just (Just w1), Just (Just w2)) | w1 == n && w2 == n -> EQ
-                                                       | w1 == n            -> LT
-                                                       | w2 == n            -> GT
-                                                       | otherwise          -> EQ
-                      (Just (Just w1), Just Nothing  ) | w1 == n            -> LT
-                                                       | otherwise          -> GT
-                      (Just (Just w1), Nothing       ) | w1 == n            -> LT
-                                                       | otherwise          -> GT
-                      (Just Nothing, Just Nothing)     -> EQ
-                      (Just Nothing, Nothing)          -> GT
-                      (Nothing, Nothing)               -> EQ
-                      (_ , _)                          -> compare EQ (sortPri r2 r1)
+        maxis = notlosses >>= \(_, (_, a')) -> maxi (l - 1) a'
+    grab (_, (m, _)) = m
+    -- maxi :: Int -> Auto Identity Int BoardOut -> [(Int, Maybe (Maybe Player))]
+    -- maxi l a | null wins = if l == 0
+    --                          then map grab notwins
+    --                          else sortBy (\(_,w1) (_,w2) -> sortPri w1 w2) (concatMap getMini notwins)
+    --          | otherwise = map grab wins
+    --   where
+    --     options :: [(Maybe (Maybe Player), (Int, Auto Identity Int BoardOut))]
+    --     options = do
+    --         m <- [1 .. boardWidth]
+    --         let Output bout a' = runIdentity $ stepAuto a m
+    --         guard . not $ _boFailed bout
+    --         -- guard . not $ _boWinner bout == Just Nothing
+    --         return (_boWinner bout, (m, a'))
+    --     (wins, notwins) = partition ((== Just (Just n)) . fst) options
+    --     getMini (_, (_, a')) = mini (l - 1) a'
+    -- mini :: Int -> Auto Identity Int BoardOut -> [(Int, Maybe (Maybe Player))]
+    -- mini l a | null losses = if l == 0
+    --                            then map grab notlosses
+    --                            -- else concatMap getMaxi notlosses
+    --                            else sortBy (\(_,w1) (_,w2) -> sortPri w2 w1) (concatMap getMaxi notlosses)
+    --          | otherwise   = map grab losses
+    --   where
+    --     options = do
+    --       m <- [1 .. boardWidth]
+    --       let Output bout a' = runIdentity $ stepAuto a m
+    --       guard . not $ _boFailed bout
+    --       return (_boWinner bout, (m, a'))
+    --     (losses, notlosses) = partition ((== Just (Just (opp n))) . fst) options
+    --     getMaxi (_, (_, a')) = maxi (l - 1) a'
+    -- grab (bow, (m, _)) = (m, bow)
+    -- sortPri :: Maybe (Maybe Player) -> Maybe (Maybe Player) -> Ordering
+    -- sortPri r1 r2 = case (r1, r2) of
+    --                   (Just (Just w1), Just (Just w2)) | w1 == n && w2 == n -> EQ
+    --                                                    | w1 == n            -> LT
+    --                                                    | w2 == n            -> GT
+    --                                                    | otherwise          -> EQ
+    --                   (Just (Just w1), Just Nothing  ) | w1 == n            -> LT
+    --                                                    | otherwise          -> GT
+    --                   (Just (Just w1), Nothing       ) | w1 == n            -> LT
+    --                                                    | otherwise          -> GT
+    --                   (Just Nothing, Just Nothing)     -> EQ
+    --                   (Just Nothing, Nothing)          -> GT
+    --                   (Nothing, Nothing)               -> EQ
+    --                   (_ , _)                          -> compare EQ (sortPri r2 r1)
 
 
 board :: MonadFix m => Board -> Player -> Auto m Int BoardOut
