@@ -103,7 +103,7 @@ showOut (BoardOut brd winner nextP _) =
 
 main :: IO ()
 main = do
-    res <- driver human (cpuMiniMax 4) emptyBoardOut (board emptyBoard X)
+    res <- driver human (cpuMiniMax 5) emptyBoardOut (board emptyBoard X)
     putStrLn (showOut res)
 
 driver :: Interface IO
@@ -142,142 +142,68 @@ cpuRandom :: Interface IO
 cpuRandom _ = Just <$> randomRIO (1, boardWidth)
 
 cpuMiniMax :: Int -> Interface IO
-cpuMiniMax lim bout = do
-    print currP
-    putStrLn $ showOut bout
-    let a0 = board (_boBoard bout) currP
-        Output bout1 _ = runIdentity $ stepAuto a0 4
-    putStrLn (showOut bout1)
-    let res  = maxi lim a0
-        choices | null res  = [1 .. boardWidth]
-                | otherwise = head . fst <$> res
-        numr = length choices - 1
-    print res
-    p <- randomRIO (0, numr)
-    return $ Just (choices !! p)
+cpuMiniMax lim bout | lim <= 0  = Just <$> randomRIO (1, boardWidth)
+                    | otherwise = case res of
+      [] -> return Nothing
+      ((_,goal):_) -> do
+        let choices = fst <$> res
+            numr = length choices - 1
+        case goal of
+          BMax  -> do
+            putStrLn "Opponent can force victory."
+            cpuMiniMax (lim - 1) bout
+          _      -> do
+            putStrLn $ case goal of
+              BMin  -> "Guaranteed victory."
+              _     -> "Maintaining position."
+            p <- randomRIO (0, numr)
+            return $ Just (choices !! p)
   where
-    currP = _boNext bout
-    maxi :: Int -> Auto Identity Int BoardOut -> [([Int], Bounder Double)]
+    b0      = _boBoard bout
+    res     = maxi lim' (board b0 currP)
+    lim'    = min (length (concat b0)) lim
+    currP   = _boNext bout
+    maxi :: Int -> Auto Identity Int BoardOut -> [(Int, Bounder Double)]
     maxi l a = fromMaybe [] . listToMaybe
              . groupBy ((==) `on` snd)
              . sortBy (comparing snd)
              $ moves
       where
-        moves :: [([Int], Bounder Double)]
+        moves :: [(Int, Bounder Double)]
         moves = do
             m <- [1 .. boardWidth]
             let Output bout' a'   = runIdentity $ stepAuto a m
             guard . not $ _boFailed bout'
-            guard $ if _boNext bout' == X then True else error "yo"
-            -- guard $ if l >= 2 then traceShow (l, m) (traceShow (_boBoard bout') True)
-            --                   else True
-
             case _boWinner bout' of
-              Just r | r == Just currP -> return ([m], BMin)
-                     | otherwise       -> return ([m], BIn 90)
+              Just r | r == Just currP -> return (m, BMin)
+                     | otherwise       -> return (m, BIn 90)
               _ -> do
                 let minis  = mini (l - 1) a'
-                    miniVal | l <= 0 = ([], BIn 0)
-                            | null minis = ([], BIn 20)
-                            | otherwise            = head minis
-                    (mp,mv) = miniVal
-                return (m:mp, mv)
-    mini :: Int -> Auto Identity Int BoardOut -> [([Int], Bounder Double)]
+                    miniVal | l <= 0     = BIn 0
+                            | null minis = BIn 20
+                            | otherwise  = snd . head $ minis
+                return (m, miniVal)
+    mini :: Int -> Auto Identity Int BoardOut -> [(Int, Bounder Double)]
     mini l a = fromMaybe [] . listToMaybe
              . reverse
              . groupBy ((==) `on` snd)
              . sortBy (comparing snd)
              $ moves
       where
-        moves :: [([Int], Bounder Double)]
+        moves :: [(Int, Bounder Double)]
         moves = do
             m <- [1 .. boardWidth]
             let Output bout' a'   = runIdentity $ stepAuto a m
             guard . not $ _boFailed bout'
-            guard $ if _boNext bout' == O then True else error "yo"
             case _boWinner bout' of
-              Just r | r == Just (opp currP) -> return ([-m], BMax)
-              -- Just r | r == Just (opp currP) -> if False then traceShow ((l, bf, -m)) (trace (showOut bo) (trace (showOut bout') (return ([-m], BIn 90))))
-              -- Just r | r == Just (opp currP) -> if l >= 1 then traceShow ((l, bf, -m)) (trace (showOut bo) (trace (showOut bout') (return ([-m], BIn 90))))
-              -- Just r | r == Just (opp currP) -> if False then traceShow ((l, -m)) (trace (showOut bout') (return ([-m], BIn 90)))
-                                                          -- else return ([-m], BIn 90)
-                     | otherwise    -> return ([-m], BIn (-90))
-                     -- | otherwise             -> error "hey what is going on mini"
+              Just r | r == Just (opp currP) -> return (-m, BMax)
+                     | otherwise    -> return (-m, BIn (-90))
               _ -> do
                 let maxis  = maxi (l - 1) a'
-                    maxiVal | l <= 0 = ([], BIn 0)
-                            | null maxis = ([], BIn 10)
-                            | otherwise            = head maxis
-                    (mp,mv) = maxiVal
-                return ((-m):mp, mv)
-
-            -- let minis = snd <$> mini (l - 1) a'
-
-            -- let minis             = snd <$> mini (l - 1) a'
-            --     maxis | l > 0 && not (null minis) = maximum (snd <$> mini (l - 1) a')
-            --           | otherwise = BIn 0
-            -- case _boWinner bout' of
-            --   Just r  -> return (m, min (score r) maxis)
-            --   Nothing -> return (m, maxis)
-    -- mini :: Int -> Auto Identity Int BoardOut -> [(Int, Bounder Double)]
-    -- mini l a = do
-    --         m <- [1 .. boardWidth]
-    --         let Output bout' a'   = runIdentity $ stepAuto a m
-    --             maxis = snd <$> maxi (l - 1) a'
-    --             minis | l > 0 && not (null maxis) = minimum (snd <$> maxi (l - 1) a')
-    --                   | otherwise = BIn 0
-    --         guard . not $ _boFailed bout'
-    --         guard . not $ _boWinner bout' == Just Nothing
-    --         case _boWinner bout' of
-    --           Just r  -> return (m, max (score r) minis)
-    --           Nothing -> return (m, minis  )
-    -- score (Just w) | w == currP = BMin    -- min = higher priority
-    --                | otherwise  = BMax
-    -- score Nothing  = BIn 100
-    -- maxi :: Int -> Auto Identity Int BoardOut -> [(Int, Maybe (Maybe Player))]
-    -- maxi l a | null wins = if l == 0
-    --                          then map grab notwins
-    --                          else sortBy (\(_,w1) (_,w2) -> sortPri w1 w2) (concatMap getMini notwins)
-    --          | otherwise = map grab wins
-    --   where
-    --     options :: [(Maybe (Maybe Player), (Int, Auto Identity Int BoardOut))]
-    --     options = do
-    --         m <- [1 .. boardWidth]
-    --         let Output bout a' = runIdentity $ stepAuto a m
-    --         guard . not $ _boFailed bout
-    --         -- guard . not $ _boWinner bout == Just Nothing
-    --         return (_boWinner bout, (m, a'))
-    --     (wins, notwins) = partition ((== Just (Just n)) . fst) options
-    --     getMini (_, (_, a')) = mini (l - 1) a'
-    -- mini :: Int -> Auto Identity Int BoardOut -> [(Int, Maybe (Maybe Player))]
-    -- mini l a | null losses = if l == 0
-    --                            then map grab notlosses
-    --                            -- else concatMap getMaxi notlosses
-    --                            else sortBy (\(_,w1) (_,w2) -> sortPri w2 w1) (concatMap getMaxi notlosses)
-    --          | otherwise   = map grab losses
-    --   where
-    --     options = do
-    --       m <- [1 .. boardWidth]
-    --       let Output bout a' = runIdentity $ stepAuto a m
-    --       guard . not $ _boFailed bout
-    --       return (_boWinner bout, (m, a'))
-    --     (losses, notlosses) = partition ((== Just (Just (opp n))) . fst) options
-    --     getMaxi (_, (_, a')) = maxi (l - 1) a'
-    -- grab (bow, (m, _)) = (m, bow)
-    -- sortPri :: Maybe (Maybe Player) -> Maybe (Maybe Player) -> Ordering
-    -- sortPri r1 r2 = case (r1, r2) of
-    --                   (Just (Just w1), Just (Just w2)) | w1 == n && w2 == n -> EQ
-    --                                                    | w1 == n            -> LT
-    --                                                    | w2 == n            -> GT
-    --                                                    | otherwise          -> EQ
-    --                   (Just (Just w1), Just Nothing  ) | w1 == n            -> LT
-    --                                                    | otherwise          -> GT
-    --                   (Just (Just w1), Nothing       ) | w1 == n            -> LT
-    --                                                    | otherwise          -> GT
-    --                   (Just Nothing, Just Nothing)     -> EQ
-    --                   (Just Nothing, Nothing)          -> GT
-    --                   (Nothing, Nothing)               -> EQ
-    --                   (_ , _)                          -> compare EQ (sortPri r2 r1)
+                    maxiVal | l <= 0     = BIn 0
+                            | null maxis = BIn 10
+                            | otherwise  = snd . head $ maxis
+                return (-m, maxiVal)
 
 
 board :: MonadFix m => Board -> Player -> Auto m Int BoardOut
