@@ -9,11 +9,11 @@ module Main (main) where
 -- import Control.Auto.Run
 -- import Control.Monad.IO.Class
 -- import Data.Map.Strict        (Map)
+-- import Debug.Trace
 import Control.Auto hiding       (loop)
 import Control.Auto.Blip
 import Control.Auto.Collection
 import Control.Auto.Switch
-import Debug.Trace
 import Control.Auto.Time
 import Control.Monad
 import Control.Monad.Fix
@@ -104,6 +104,7 @@ showOut (BoardOut brd winner nextP _) =
 main :: IO ()
 main = do
     res <- driver human (cpuMiniMax 5) emptyBoardOut (board emptyBoard X)
+    clearScreen
     putStrLn (showOut res)
 
 driver :: Interface IO
@@ -132,7 +133,7 @@ driver p1 p2 bout a =
 
 human :: Interface IO
 human bout = do
-    -- clearScreen
+    clearScreen
     when (_boFailed bout) $ putStrLn "Bad move!"
 
     putStrLn (showOut bout)
