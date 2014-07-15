@@ -20,7 +20,7 @@ import Control.Monad.Fix
 import Data.Foldable
 import Data.Function hiding      ((.), id)
 import Data.Functor.Identity
-import Data.List hiding          (concat, all, any, and, concatMap, notElem, minimum, maximum)
+import Data.List hiding          (concat, all, any, and, concatMap, notElem, minimum, maximum, maximumBy)
 import Data.Maybe
 import Data.Ord
 import Data.Serialize
@@ -144,10 +144,10 @@ human bout = do
 
 cpuMiniMax :: Int -> Interface IO
 cpuMiniMax lim bout | lim <= 0  = Just <$> randomRIO (1, boardWidth)
-                    | otherwise = case res of
+                    | otherwise = case candidates of
       [] -> return Nothing
       ((_,goal):_) -> do
-        let choices = fst <$> res
+        let choices = fst <$> candidates
             numr = length choices - 1
         case goal of
           BMax  -> do
@@ -160,50 +160,46 @@ cpuMiniMax lim bout | lim <= 0  = Just <$> randomRIO (1, boardWidth)
             p <- randomRIO (0, numr)
             return $ Just (choices !! p)
   where
-    b0      = _boBoard bout
-    res     = maxi lim' (board b0 currP)
     lim'    = min (length (concat b0)) lim
     currP   = _boNext bout
-    maxi :: Int -> Auto Identity Int BoardOut -> [(Int, Bounder Double)]
-    maxi l a = fromMaybe [] . listToMaybe
-             . groupBy ((==) `on` snd)
-             . sortBy (comparing snd)
-             $ moves
+    b0      = _boBoard bout
+    a0      = board b0 currP
+    candidates :: [(Int, Bounder Double)]
+    candidates = fromMaybe [] . listToMaybe
+               . groupBy ((==) `on` snd)
+               . sortBy (comparing snd)
+               $ do
+      m <- [1 .. boardWidth]
+      let Output bout' a' = runIdentity (stepAuto a0 m)
+      guard . not $ _boFailed bout'
+      case _boWinner bout' of
+        Just r | r == Just currP -> return (m, BMin)
+               | otherwise       -> return (m, BIn 0)
+        _ -> do
+          let mm    = miniMaxi (lim' - 1) (opp currP) a'
+              mmVal = fromMaybe (BIn 0) mm
+          return (m, mmVal)
+    miniMaxi :: Int -> Player -> Auto Identity Int BoardOut -> Maybe (Bounder Double)
+    miniMaxi l p a | null moves = Nothing
+                   | otherwise  = Just (metric moves)
       where
-        moves :: [(Int, Bounder Double)]
+        metric | p == currP = minimum
+               | otherwise  = maximum
+        moves :: [Bounder Double]
         moves = do
-            m <- [1 .. boardWidth]
-            let Output bout' a'   = runIdentity $ stepAuto a m
-            guard . not $ _boFailed bout'
-            case _boWinner bout' of
-              Just r | r == Just currP -> return (m, BMin)
-                     | otherwise       -> return (m, BIn 90)
-              _ -> do
-                let minis  = mini (l - 1) a'
-                    miniVal | l <= 0     = BIn 0
-                            | otherwise  = case minis of
-                                             Nothing    -> BIn 20
-                                             Just (_,v) -> v
-                return (m, miniVal)
-    mini :: Int -> Auto Identity Int BoardOut -> Maybe (Int, Bounder Double)
-    mini l a = listToMaybe
-             . sortBy (flip (comparing snd))
-             $ moves
-      where
-        moves :: [(Int, Bounder Double)]
-        moves = do
-            m <- [1 .. boardWidth]
-            let Output bout' a'   = runIdentity $ stepAuto a m
-            guard . not $ _boFailed bout'
-            case _boWinner bout' of
-              Just r | r == Just (opp currP) -> return (-m, BMax)
-                     | otherwise    -> return (-m, BIn (-90))
-              _ -> do
-                let maxis  = maxi (l - 1) a'
-                    maxiVal | l <= 0     = BIn 0
-                            | null maxis = BIn 10
-                            | otherwise  = snd . head $ maxis
-                return (-m, maxiVal)
+          m <- [1 .. boardWidth]
+          let Output bout' a' = runIdentity (stepAuto a m)
+          guard . not $ _boFailed bout'
+          case _boWinner bout' of
+            Just (Just r) | r == currP -> return BMin
+                          | otherwise  -> return BMax
+            Just Nothing  -> return (BIn 0)
+            _             -> do
+              let mm    = miniMaxi (l - 1) (opp p) a'
+                  mmVal | l <= 0    = BIn 0
+                        | otherwise = fromMaybe (BIn 0) mm
+              return mmVal
+
 
 
 board :: MonadFix m => Board -> Player -> Auto m Int BoardOut
