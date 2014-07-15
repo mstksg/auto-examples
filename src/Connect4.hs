@@ -20,12 +20,12 @@ import Control.Monad.Fix
 import Data.Foldable
 import Data.Function hiding      ((.), id)
 import Data.Functor.Identity
-import Data.List hiding          (concat, all, any, and, concatMap, notElem, minimum, maximum, maximumBy)
+import Data.List hiding          (concat, all, any, and, concatMap, notElem, minimum, maximum, maximumBy, foldr)
 import Data.Maybe
 import Data.Ord
 import Data.Serialize
 import GHC.Generics
-import Prelude hiding            ((.), id, concat, all, any, and, concatMap, notElem, minimum, maximum)
+import Prelude hiding            ((.), id, concat, all, any, and, concatMap, notElem, minimum, maximum, foldr)
 import System.Console.ANSI
 import System.Random
 import qualified Data.Map.Strict as M
@@ -80,9 +80,6 @@ isWinner p b = any (any hasFour) [ filled , transpose filled
     wedgeUp   = transpose $ zipWith (++) wedge filled
     wedgeDown = transpose $ zipWith (++) (reverse wedge) filled
 
--- legalMoves :: Board -> [Int]
--- legalMoves = map fst . filter ((< boardHeight) . length . snd) . zip [1..]
-
 showBoard :: Board -> String
 showBoard = unlines   . map concat
           . transpose . map fill
@@ -103,8 +100,8 @@ showOut (BoardOut brd winner nextP _) =
 
 main :: IO ()
 main = do
-    res <- driver human (cpuMiniMax 5) emptyBoardOut (board emptyBoard X)
-    clearScreen
+    res <- driver human (cpuAlphaBeta 10) emptyBoardOut (board emptyBoard X)
+    -- clearScreen
     putStrLn (showOut res)
 
 driver :: Interface IO
@@ -133,14 +130,14 @@ driver p1 p2 bout a =
 
 human :: Interface IO
 human bout = do
-    clearScreen
+    -- clearScreen
     when (_boFailed bout) $ putStrLn "Bad move!"
 
     putStrLn (showOut bout)
     fmap fst . listToMaybe . reads <$> getLine
 
--- cpuRandom :: Interface IO
--- cpuRandom _ = Just <$> randomRIO (1, boardWidth)
+cpuRandom :: Interface IO
+cpuRandom _ = Just <$> randomRIO (1, boardWidth)
 
 cpuMiniMax :: Int -> Interface IO
 cpuMiniMax lim bout | lim <= 0  = Just <$> randomRIO (1, boardWidth)
@@ -200,6 +197,66 @@ cpuMiniMax lim bout | lim <= 0  = Just <$> randomRIO (1, boardWidth)
                         | otherwise = fromMaybe (BIn 0) mm
               return mmVal
 
+cpuAlphaBeta :: Int -> Interface IO
+cpuAlphaBeta lim bout | lim <= 0  = Just <$> randomRIO (1, boardWidth)
+                      | otherwise = do
+    pickers <- zip [1 .. boardWidth] . randoms <$> newStdGen :: IO [(Int, Double)]
+    let checkOrder = map fst . sortBy (comparing snd) $ pickers
+        (res, gl)  = maxi checkOrder lim' BMin BMax a0
+        trueRes    = case res of
+                       Nothing -> Just <$> randomRIO (1, boardWidth)
+                       _       -> return res
+    case gl of
+      BMin  -> do
+        putStrLn "Opponent can force victory."
+        cpuMiniMax (lim' `div` 2) bout
+      BMax  -> do
+        putStrLn "Victory guarunteed."
+        trueRes
+      BIn s -> do
+        putStrLn $ "Maintaining " ++ show s
+        trueRes
+  where
+    currP = _boNext bout
+    b0    = _boBoard bout
+    a0 = board b0 currP
+    lim' = min (length (concat b0)) lim
+    maxi :: [Int]                         -- check order
+         -> Int                           -- limit
+         -> Bounder Double                -- alpha
+         -> Bounder Double                -- beta
+         -> Auto Identity Int BoardOut    -- board Auto
+         -> (Maybe Int, Bounder Double)   -- (best move, score)
+    maxi ms l α0 β0 a | l <= 0    = (Nothing, BIn 0)
+                      | otherwise = foldr f (Nothing, α0) ms
+      where
+        f :: Int -> (Maybe Int, Bounder Double) -> (Maybe Int, Bounder Double)
+        f m' (m, α) = fromMaybe (m, α) $ do
+                        guard . not $ α >= β0
+                        guard . not $ _boFailed bout'
+                        guard       $ α'' > α
+                        return (Just m', α'')
+          where
+            Output bout' a' = runIdentity (stepAuto a m')
+            (_, α')         = mini ms (l - 1) α β0 a'
+            α''             = fromMaybe α' . fmap score $ _boWinner bout'
+    mini :: [Int] -> Int -> Bounder Double -> Bounder Double
+         -> Auto Identity Int BoardOut -> (Maybe Int, Bounder Double)
+    mini ms l α0 β0 a | l <= 0    = (Nothing, BIn 0)
+                      | otherwise = foldr f (Nothing, β0) ms
+      where
+        f m' (m, β) = fromMaybe (m, β) $ do
+                        guard . not $ α0 >= β
+                        guard . not $ _boFailed bout'
+                        guard       $ β'' < β
+                        return (Just m', β'')
+          where
+            Output bout' a' = runIdentity (stepAuto a m')
+            (_, β')         = maxi ms (l - 1) α0 β a'
+            β''             = fromMaybe β' . fmap score $ _boWinner bout'
+    score (Just p) | p == currP = BMax
+                   | otherwise  = BMin
+    score Nothing  = BIn (-100)
 
 
 board :: MonadFix m => Board -> Player -> Auto m Int BoardOut

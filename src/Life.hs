@@ -71,7 +71,7 @@ board g0 = proc _ -> do
             -- a list of every possible "shift" of 'cellGrid'
         let shiftedGrids :: [Grid]
             shiftedGrids = map ($ cells) allShifts
-            -- going across each Grid in 'shfitedGrids', and accumulating
+            -- going across each Grid in 'shiftedGrids', and accumulating
             --   the cells in every spot.  Basically returns a Grid of
             --   Neighborhoods, where every spot is associated with
             --   a Neighborhood.
