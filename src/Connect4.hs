@@ -100,9 +100,22 @@ showOut (BoardOut brd winner nextP _) =
 
 main :: IO ()
 main = do
-    res <- driver human (cpuAlphaBeta 10) emptyBoardOut (board emptyBoard X)
-    -- clearScreen
+    if1 <- putStrLn "Player 1 (X):" >> pickInterface
+    if2 <- putStrLn "Player 2 (O):" >> pickInterface
+    res <- driver if1 if2 emptyBoardOut (board emptyBoard X)
+    clearScreen
     putStrLn (showOut res)
+  where
+    pickInterface = do
+      putStrLn "1) Human"
+      putStrLn "2) AI Easy"
+      putStrLn "3) AI Hard-ish"
+      l <- getLine
+      case l of
+        '1':_ -> return human
+        '2':_ -> return $ cpuAlphaBeta False 4
+        '3':_ -> return $ cpuAlphaBeta False 8
+        _     -> pickInterface
 
 driver :: Interface IO
        -> Interface IO
@@ -130,97 +143,52 @@ driver p1 p2 bout a =
 
 human :: Interface IO
 human bout = do
-    -- clearScreen
+    clearScreen
     when (_boFailed bout) $ putStrLn "Bad move!"
-
     putStrLn (showOut bout)
-    fmap fst . listToMaybe . reads <$> getLine
+    getOk
+  where
+    getOk = do
+      l <- getLine
+      case words l of
+        "@quit":_ -> return Nothing
+        "@help":_ -> putStrLn "@quit to quit; # to play."
+                  >> getOk
+        _         -> do
+          let res = fmap fst . listToMaybe . reads $ l
+          if isNothing res
+            then putStrLn "Invalid command.  @help for help."
+              >> getOk
+            else
+              return res
 
 cpuRandom :: Interface IO
 cpuRandom _ = Just <$> randomRIO (1, boardWidth)
 
-cpuMiniMax :: Int -> Interface IO
-cpuMiniMax lim bout | lim <= 0  = Just <$> randomRIO (1, boardWidth)
-                    | otherwise = case candidates of
-      [] -> return Nothing
-      ((_,goal):_) -> do
-        let choices = fst <$> candidates
-            numr = length choices - 1
-        case goal of
-          BMax  -> do
-            putStrLn "Opponent can force victory."
-            cpuMiniMax (lim - 1) bout
-          _      -> do
-            putStrLn $ case goal of
-              BMin  -> "Guaranteed victory."
-              _     -> "Maintaining position."
-            p <- randomRIO (0, numr)
-            return $ Just (choices !! p)
-  where
-    lim'    = min (length (concat b0)) lim
-    currP   = _boNext bout
-    b0      = _boBoard bout
-    a0      = board b0 currP
-    candidates :: [(Int, Bounder Double)]
-    candidates = fromMaybe [] . listToMaybe
-               . groupBy ((==) `on` snd)
-               . sortBy (comparing snd)
-               $ do
-      m <- [1 .. boardWidth]
-      let Output bout' a' = runIdentity (stepAuto a0 m)
-      guard . not $ _boFailed bout'
-      case _boWinner bout' of
-        Just r | r == Just currP -> return (m, BMin)
-               | otherwise       -> return (m, BIn 0)
-        _ -> do
-          let mm    = miniMaxi (lim' - 1) (opp currP) a'
-              mmVal = fromMaybe (BIn 0) mm
-          return (m, mmVal)
-    miniMaxi :: Int -> Player -> Auto Identity Int BoardOut -> Maybe (Bounder Double)
-    miniMaxi l p a | null moves = Nothing
-                   | otherwise  = Just (metric moves)
-      where
-        metric | p == currP = minimum
-               | otherwise  = maximum
-        moves :: [Bounder Double]
-        moves = do
-          m <- [1 .. boardWidth]
-          let Output bout' a' = runIdentity (stepAuto a m)
-          guard . not $ _boFailed bout'
-          case _boWinner bout' of
-            Just (Just r) | r == currP -> return BMin
-                          | otherwise  -> return BMax
-            Just Nothing  -> return (BIn 0)
-            _             -> do
-              let mm    = miniMaxi (l - 1) (opp p) a'
-                  mmVal | l <= 0    = BIn 0
-                        | otherwise = fromMaybe (BIn 0) mm
-              return mmVal
-
-cpuAlphaBeta :: Int -> Interface IO
-cpuAlphaBeta lim bout | lim <= 0  = Just <$> randomRIO (1, boardWidth)
-                      | otherwise = do
+cpuAlphaBeta :: Bool -> Int -> Interface IO
+cpuAlphaBeta dbg lim bout | lim <= 0  = Just <$> randomRIO (1, boardWidth)
+                          | otherwise = do
     pickers <- zip [1 .. boardWidth] . randoms <$> newStdGen :: IO [(Int, Double)]
     let checkOrder = map fst . sortBy (comparing snd) $ pickers
         (res, gl)  = maxi checkOrder lim' BMin BMax a0
-        trueRes    = case res of
-                       Nothing -> Just <$> randomRIO (1, boardWidth)
-                       _       -> return res
+        trueRes    | isNothing res = Just <$> randomRIO (1, boardWidth)
+                   | otherwise     = return res
     case gl of
       BMin  -> do
-        putStrLn "Opponent can force victory."
-        cpuMiniMax (lim' `div` 2) bout
+        putStrLn' "Opponent can force victory."
+        cpuAlphaBeta dbg (lim' `div` 2) bout
       BMax  -> do
-        putStrLn "Victory guarunteed."
+        putStrLn' "Victory guarunteed."
         trueRes
       BIn s -> do
-        putStrLn $ "Maintaining " ++ show s
+        putStrLn' $ "Maintaining " ++ show s
         trueRes
   where
+    putStrLn' = when dbg . putStrLn
     currP = _boNext bout
     b0    = _boBoard bout
     a0 = board b0 currP
-    lim' = min (length (concat b0)) lim
+    lim' = min (length (concat b0) * 2) lim
     maxi :: [Int]                         -- check order
          -> Int                           -- limit
          -> Bounder Double                -- alpha
