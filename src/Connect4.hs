@@ -10,7 +10,7 @@ module Main (main) where
 -- import Control.Auto.Run
 -- import Control.Monad.IO.Class
 -- import Data.Map.Strict          (Map)
-import Debug.Trace
+-- import Debug.Trace
 import Control.Auto hiding         (loop)
 import Control.Auto.Blip
 import Control.Auto.Collection
@@ -19,18 +19,17 @@ import Control.Auto.Switch
 import Control.Auto.Time
 import Control.Monad hiding        (forM_, mapM_)
 import Control.Monad.Fix
-import Data.Foldable
+import Data.Foldable  (toList)
 import Data.Function hiding        ((.), id)
 import Data.Functor.Identity
-import Data.List hiding            (concat, all, any, and, concatMap, notElem, minimum, maximum, maximumBy, foldr)
+import Data.List
 import Data.Maybe
 import Data.Ord
 import Data.Serialize
 import GHC.Generics
-import Prelude hiding              ((.), id, concat, all, any, and, concatMap, notElem, minimum, maximum, foldr, mapM_)
+import Prelude hiding              ((.), id, mapM_)
 import System.Console.ANSI
 import System.Random
-import qualified Data.Map.Strict   as M
 import qualified Data.Map.Strict   as M
 
 type Board = [[Piece]]
@@ -64,12 +63,13 @@ emptyBoardOut = BoardOut emptyBoard Nothing X False
 main :: IO ()
 main = do
     g <- getStdGen
-    let a0 = driver human (cpuAlphaBeta 6 g)
+    let a0 = driver human (cpuAlphaBeta 8 g)
     loop a0
   where
     loop a = do
       l <- getLine
       let Output bout a' = runIdentity (stepAuto a l)
+      clearScreen
       putStrLn (showOut bout)
       when (isNothing (_boWinner bout)) $ loop a'
 
@@ -89,7 +89,7 @@ driver i1 i2 = proc i -> do
           leave <- immediately -< ()
           id     -< (bout, leave)
         else
-          id     -< traceShow (req, _boNext bout') (bout, req  )
+          id     -< (bout, req  )
     interf X = i1
     interf O = i2
 
@@ -104,8 +104,9 @@ cpuRandom :: Monad m => StdGen -> Interface m
 cpuRandom g = proc (_, _) -> do
     req <- never -< ()
     move <- stdRands (randomR (1, boardWidth)) g -< ()
-    id -< traceShow (Just move) (Just move, req)
+    id -< (Just move, req)
 
+-- to try out --- some sort of "retry" ?
 cpuAlphaBeta :: Monad m => Int -> StdGen -> Interface m
 cpuAlphaBeta lim g = proc (_, bout) -> do
     let currP = _boNext bout
@@ -124,15 +125,15 @@ cpuAlphaBeta lim g = proc (_, bout) -> do
     req <- never -< ()
     id -< (trueRes, req)
   where
-    maxi :: [Int]                         -- check order
-         -> Player                        -- current player
-         -> Int                           -- limit
-         -> Bounder Double                -- alpha
-         -> Bounder Double                -- beta
-         -> Auto Identity Int BoardOut    -- board Auto
-         -> (Maybe Int, Bounder Double)   -- (best move, score)
-    maxi ms currP l α0 β0 a | l <= 0    = (Nothing, BIn 0)
-                            | otherwise = foldr f (Nothing, α0) ms
+    maxi :: [Int]                         -- ^ check order
+         -> Player                        -- ^ maximizing player
+         -> Int                           -- ^ limit
+         -> Bounder Double                -- ^ alpha
+         -> Bounder Double                -- ^ beta
+         -> Auto Identity Int BoardOut    -- ^ board Auto
+         -> (Maybe Int, Bounder Double)   -- ^ (best move, score)
+    maxi ms maxP l α0 β0 a | l <= 0    = (Nothing, BIn 0)
+                           | otherwise = foldr f (Nothing, α0) ms
       where
         f :: Int -> (Maybe Int, Bounder Double) -> (Maybe Int, Bounder Double)
         f m' (m, α) = fromMaybe (m, α) $ do
@@ -142,12 +143,12 @@ cpuAlphaBeta lim g = proc (_, bout) -> do
                         return (Just m', α'')
           where
             Output bout' a' = runIdentity (stepAuto a m')
-            (_, α')         = mini ms currP (l - 1) α β0 a'
-            α''             = maybe α' (score currP) $ _boWinner bout'
+            (_, α')         = mini ms maxP (l - 1) α β0 a'
+            α''             = maybe α' (score maxP) $ _boWinner bout'
     mini :: [Int] -> Player -> Int -> Bounder Double -> Bounder Double
          -> Auto Identity Int BoardOut -> (Maybe Int, Bounder Double)
-    mini ms currP l α0 β0 a | l <= 0    = (Nothing, BIn 0)
-                            | otherwise = foldr f (Nothing, β0) ms
+    mini ms maxP l α0 β0 a | l <= 0    = (Nothing, BIn 0)
+                           | otherwise = foldr f (Nothing, β0) ms
       where
         f m' (m, β) = fromMaybe (m, β) $ do
                         guard . not $ α0 >= β
@@ -156,11 +157,20 @@ cpuAlphaBeta lim g = proc (_, bout) -> do
                         return (Just m', β'')
           where
             Output bout' a' = runIdentity (stepAuto a m')
-            (_, β')         = maxi ms currP (l - 1) α0 β a'
-            β''             = maybe β' (score currP) $ _boWinner bout'
+            (_, β')         = maxi ms maxP (l - 1) α0 β a'
+            β''             = maybe β' (score maxP) $ _boWinner bout'
     score cP (Just p) | p == cP = BMax
                       | otherwise  = BMin
     score _  Nothing  = BIn (-100)
+    -- heuristic :: Player -> Auto Identity Int BoardOut -> Double
+    -- heuristic maxP a0 = sum . map findTraps $ [1 .. boardWidth]
+    --   where
+    --     findTraps m =
+    --       let Output bout _ = runIdentity $ stepAuto (accelerate 2 a0) m
+    --       in  case _boWinner (last bout) of
+    --             Just (Just p) | p == maxP -> 1
+    --                           | otherwise  -> (-1)
+    --             _             -> 0
 
 
 
