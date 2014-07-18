@@ -10,14 +10,14 @@ module Main (main) where
 -- import Control.Auto.Run
 -- import Control.Monad.IO.Class
 -- import Data.Map.Strict          (Map)
--- import Debug.Trace
+import Debug.Trace
 import Control.Auto hiding         (loop)
 import Control.Auto.Blip
 import Control.Auto.Collection
 import Control.Auto.Process.Random
 import Control.Auto.Switch
 import Control.Auto.Time
-import Control.Monad hiding        (forM_)
+import Control.Monad hiding        (forM_, mapM_)
 import Control.Monad.Fix
 import Data.Foldable
 import Data.Function hiding        ((.), id)
@@ -27,7 +27,7 @@ import Data.Maybe
 import Data.Ord
 import Data.Serialize
 import GHC.Generics
-import Prelude hiding              ((.), id, concat, all, any, and, concatMap, notElem, minimum, maximum, foldr)
+import Prelude hiding              ((.), id, concat, all, any, and, concatMap, notElem, minimum, maximum, foldr, mapM_)
 import System.Console.ANSI
 import System.Random
 import qualified Data.Map.Strict   as M
@@ -78,34 +78,35 @@ main = do
 driver :: forall m. MonadFix m => Interface m -> Interface m -> Auto m String BoardOut
 driver i1 i2 = proc i -> do
     let comm = fromMaybe 0 . fmap fst . listToMaybe $ reads i
-    (bout, _) <- skipTo driver' -< comm
-    id -< head bout
+    (bouts, _) <- skipTo driver' -< comm
+    id -< last bouts
   where
     driver' :: Auto m (Maybe Int) (BoardOut, Blip ())
     driver' = proc i -> do
       rec bout' <- delay emptyBoardOut -< bout
           (move, req) <- mux interf -< (_boNext bout', (i, bout'))
-          let move' = fromMaybe 0 move
-          bout <- board emptyBoard X -< move'
+          bout <- board emptyBoard X -< fromMaybe 0 move
       if isJust (_boWinner bout)
         then do
           leave <- immediately -< ()
           id     -< (bout, leave)
         else
-          id     -< (bout, req)
+          id     -< traceShow (req, _boNext bout') (bout, req  )
     interf X = i1
     interf O = i2
 
 human :: Monad m => Interface m
 human = proc (i, _) -> do
-    req <- onJusts -< Just ()
-    id -< (i, req)
+    req <- case i of
+             Just _  -> never -< ()
+             Nothing -> onJusts -< Just ()
+    id -< (i,  req)
 
 cpuRandom :: Monad m => StdGen -> Interface m
 cpuRandom g = proc (_, _) -> do
-    req <- never -< Nothing
+    req <- never -< ()
     move <- stdRands (randomR (1, boardWidth)) g -< ()
-    id -< (Just move, req)
+    id -< traceShow (Just move) (Just move, req)
 
 -- main :: IO ()
 -- main = loop
