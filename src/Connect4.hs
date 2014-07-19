@@ -9,29 +9,30 @@ module Main (main) where
 -- import Control.Auto.Generate
 -- import Control.Auto.Run
 -- import Control.Monad.IO.Class
--- import Data.Map.Strict          (Map)
--- import Debug.Trace
-import Control.Auto hiding         (loop)
+-- import Data.Map.Strict           (Map)
+import Debug.Trace
+import Control.Auto hiding          (loop)
 import Control.Auto.Blip
 import Control.Auto.Collection
+import Control.Auto.Interval hiding (when)
 import Control.Auto.Process.Random
 import Control.Auto.Switch
 import Control.Auto.Time
-import Control.Monad hiding        (forM_, mapM_)
+import Control.Monad hiding         (forM_, mapM_)
 import Control.Monad.Fix
-import Data.Foldable               (toList)
-import Data.Function hiding        ((.), id)
+import Data.Foldable                (toList)
+import Data.Function hiding         ((.), id)
 import Data.Functor.Identity
 import Data.List
 import Data.Maybe
 import Data.Ord
 import Data.Serialize
 import GHC.Generics
-import Prelude hiding              ((.), id, mapM_)
+import Prelude hiding               ((.), id, mapM_)
 import System.Console.ANSI
 import System.Environment
 import System.Random
-import qualified Data.Map.Strict   as M
+import qualified Data.Map.Strict    as M
 
 type Board = [[Piece]]
 type Player = Piece
@@ -99,67 +100,6 @@ game i1 i2 = fastForward Nothing game' <<^ Just
     interf X = i1
     interf O = i2
 
-human :: Monad m => Interface m
-human = arr fst
-
-cpuRandom :: Monad m => StdGen -> Interface m
-cpuRandom g = Just <$> stdRands (randomR (1, boardWidth)) g
-
--- to try out --- some sort of "retry" ?
-cpuAlphaBeta :: Monad m => Int -> StdGen -> Interface m
-cpuAlphaBeta lim g = proc (_, bout) -> do
-    let currP = _boNext bout
-        bo0   = _boBoard bout
-        a0     = board bo0 currP
-        lim'  = min (length (concat bo0) * 2) lim
-
-    weights <- accelerate boardWidth (stdRands random g) -< ()
-
-    let checkOrder = map fst . sortBy (comparing snd)
-                   . zip [1 .. boardWidth]
-                   $ (weights :: [Double])
-        (res, _)   = maxi checkOrder currP lim' BMin BMax a0
-        trueRes    = res <|> Just (head checkOrder)
-
-    id -< trueRes
-  where
-    maxi :: [Int]                         -- ^ check order
-         -> Player                        -- ^ maximizing player
-         -> Int                           -- ^ limit
-         -> Bounder Double                -- ^ alpha
-         -> Bounder Double                -- ^ beta
-         -> Auto Identity Int BoardOut    -- ^ board Auto
-         -> (Maybe Int, Bounder Double)   -- ^ (best move, score)
-    maxi ms maxP l α0 β0 a | l <= 0    = (Nothing, BIn 0)
-                           | otherwise = foldr f (Nothing, α0) ms
-      where
-        f :: Int -> (Maybe Int, Bounder Double) -> (Maybe Int, Bounder Double)
-        f m' (m, α) = fromMaybe (m, α) $ do
-                        guard . not $ α >= β0
-                        guard . not $ _boFailed bout'
-                        guard       $ α'' > α
-                        return (Just m', α'')
-          where
-            Output bout' a' = runIdentity (stepAuto a m')
-            (_, α')         = mini ms maxP (l - 1) α β0 a'
-            α''             = maybe α' (score maxP) $ _boWinner bout'
-    mini :: [Int] -> Player -> Int -> Bounder Double -> Bounder Double
-         -> Auto Identity Int BoardOut -> (Maybe Int, Bounder Double)
-    mini ms maxP l α0 β0 a | l <= 0    = (Nothing, BIn 0)
-                           | otherwise = foldr f (Nothing, β0) ms
-      where
-        f m' (m, β) = fromMaybe (m, β) $ do
-                        guard . not $ α0 >= β
-                        guard . not $ _boFailed bout'
-                        guard       $ β'' < β
-                        return (Just m', β'')
-          where
-            Output bout' a' = runIdentity (stepAuto a m')
-            (_, β')         = maxi ms maxP (l - 1) α0 β a'
-            β''             = maybe β' (score maxP) $ _boWinner bout'
-    score cP (Just p) | p == cP = BMax
-                      | otherwise  = BMin
-    score _  Nothing  = BIn (-100)
 
 board :: MonadFix m => Board -> Player -> Auto m Int BoardOut
 board b0 p0 = switchFromF gameOver (board' b0 p0)
@@ -191,9 +131,9 @@ board' b0 p0 = proc i -> do
               | otherwise = p
 
 isWinner :: Player -> Board -> Bool
-isWinner p b = any (any hasFour) [ filled , transpose filled
-                                 , wedgeUp, wedgeDown
-                                 ]
+isWinner p b = (any . any) hasFour [ filled , transpose filled
+                                   , wedgeUp, wedgeDown
+                                   ]
   where
     hasFour (j:k:l:m:ns) | and [j,k,l,m] = True
                          | otherwise     = hasFour (k:l:m:ns)
@@ -238,7 +178,7 @@ readMaybe = fmap fst . listToMaybe . reads
 -- Interface & AI
 
 -- Ord-to-bound promoter for AI purposes and fast comparisons.
-data Bounder a = BMin | BIn a | BMax deriving (Eq, Show)
+data Bounder a = BMin | BIn a | BMax deriving (Eq, Show, Generic)
 
 instance Ord a => Ord (Bounder a) where
     compare BMin BMin = EQ
@@ -249,3 +189,74 @@ instance Ord a => Ord (Bounder a) where
     compare (BIn _) BMax = LT
     compare (BIn x) (BIn y) = compare x y
 
+instance Serialize a => Serialize (Bounder a)
+
+human :: Monad m => Interface m
+human = arr fst
+
+cpuRandom :: Monad m => StdGen -> Interface m
+cpuRandom g = Just <$> stdRands (randomR (1, boardWidth)) g
+
+-- to try out --- some sort of "retry" ?
+cpuAlphaBeta :: MonadFix m => Int -> StdGen -> Interface m
+cpuAlphaBeta lim g = proc (_, bout) -> do
+    rec lastGl    <- delay (BIn 0) -< gl
+        lastRetry <- delay False   -< retry
+
+        let currP = _boNext bout
+            bo0   = _boBoard bout
+            a0    = board bo0 currP
+            retry = not (lastRetry) && lastGl == BMin
+            lim'  | retry     = 2
+                  | otherwise = min (length (concat bo0) * 2) lim
+            -- lim'  = min (length (concat bo0) * 2) lim
+
+        weights <- accelerate boardWidth (stdRands random g) -< ()
+
+        let checkOrder = map fst . sortBy (comparing snd)
+                       . zip [1 .. boardWidth]
+                       $ (weights :: [Double])
+            (res, gl)  = maxi checkOrder currP lim' BMin BMax a0
+            trueRes    = res <|> Just (head checkOrder)
+            retryRes   | retry     = 0 <$ trueRes
+                       | otherwise = trueRes
+
+    id -< retryRes
+  where
+    maxi :: [Int]                         -- ^ check order
+         -> Player                        -- ^ maximizing player
+         -> Int                           -- ^ limit
+         -> Bounder Double                -- ^ alpha
+         -> Bounder Double                -- ^ beta
+         -> Auto Identity Int BoardOut    -- ^ board Auto
+         -> (Maybe Int, Bounder Double)   -- ^ (best move, score)
+    maxi ms maxP l α0 β0 a | l <= 0    = (Nothing, BIn 0)
+                           | otherwise = foldr f (Nothing, α0) ms
+      where
+        f :: Int -> (Maybe Int, Bounder Double) -> (Maybe Int, Bounder Double)
+        f m' (m, α) = fromMaybe (m, α) $ do
+                        guard . not $ α >= β0
+                        guard . not $ _boFailed bout'
+                        guard       $ α'' > α
+                        return (Just m', α'')
+          where
+            Output bout' a' = runIdentity (stepAuto a m')
+            (_, α')         = mini ms maxP (l - 1) α β0 a'
+            α''             = maybe α' (score maxP) $ _boWinner bout'
+    mini :: [Int] -> Player -> Int -> Bounder Double -> Bounder Double
+         -> Auto Identity Int BoardOut -> (Maybe Int, Bounder Double)
+    mini ms maxP l α0 β0 a | l <= 0    = (Nothing, BIn 0)
+                           | otherwise = foldr f (Nothing, β0) ms
+      where
+        f m' (m, β) = fromMaybe (m, β) $ do
+                        guard . not $ α0 >= β
+                        guard . not $ _boFailed bout'
+                        guard       $ β'' < β
+                        return (Just m', β'')
+          where
+            Output bout' a' = runIdentity (stepAuto a m')
+            (_, β')         = maxi ms maxP (l - 1) α0 β a'
+            β''             = maybe β' (score maxP) $ _boWinner bout'
+    score cP (Just p) | p == cP = BMax
+                      | otherwise  = BMin
+    score _  Nothing  = BIn (-100)
