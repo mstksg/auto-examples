@@ -19,7 +19,7 @@ import Control.Auto.Switch
 import Control.Auto.Time
 import Control.Monad hiding        (forM_, mapM_)
 import Control.Monad.Fix
-import Data.Foldable  (toList)
+import Data.Foldable               (toList)
 import Data.Function hiding        ((.), id)
 import Data.Functor.Identity
 import Data.List
@@ -29,6 +29,7 @@ import Data.Serialize
 import GHC.Generics
 import Prelude hiding              ((.), id, mapM_)
 import System.Console.ANSI
+import System.Environment
 import System.Random
 import qualified Data.Map.Strict   as M
 
@@ -43,18 +44,10 @@ data BoardOut = BoardOut { _boBoard  :: !Board
                          , _boFailed :: !Bool
                          } deriving Generic
 
-data Mode = Select | Game InterfaceType InterfaceType deriving Generic
-data InterfaceType = Human | CPURandom | CPUAlphaBeta Bool deriving Generic
-data C4Out = GameOut BoardOut | PromptInterf Player
-
--- type Interface m = BoardOut -> m (Maybe Int)
-
 type Interface m = Auto m (Maybe Int, BoardOut) (Maybe Int)
 
 instance Serialize Piece
 instance Serialize BoardOut
-instance Serialize Mode
-instance Serialize InterfaceType
 
 boardWidth, boardHeight :: Int
 boardWidth = 7
@@ -67,62 +60,42 @@ emptyBoardOut :: BoardOut
 emptyBoardOut = BoardOut emptyBoard Nothing X False
 
 main :: IO ()
-main = putStrLn "hello"
--- main = do
---     g <- getStdGen
---     let a0 = game human (cpuAlphaBeta 8 g)
---     loop a0
---   where
---     loop a = do
---       l <- getLine
---       let Output bout a' = runIdentity (stepAuto a l)
---       clearScreen
---       putStrLn (showOut bout)
---       when (isNothing (_boWinner bout)) $ loop a'
-
-driver :: forall m. MonadFix m => StdGen -> Auto m String (Maybe String)
-driver g0 = proc inp -> do
-    g    <- stdRands split g0 -< ()
-    outp <- switchFromF mode initialize -< (inp, g)
-    id   -< Nothing
+main = do
+    args <- getArgs
+    (i1, i2) <- case args of
+                  []      -> (,) <$> interfOf "h" <*> interfOf "cH"
+                  i1:[]   -> (,) <$> interfOf i1  <*> interfOf "cH"
+                  i1:i2:_ -> (,) <$> interfOf i1  <*> interfOf i2
+    putStrLn (showOut emptyBoardOut)
+    let a0 = game i1 i2
+    loop a0
   where
-    mode :: Mode -> Auto m (String, StdGen) (C4Out, Blip Mode)
-    mode Select       = selecting
-    mode (Game i1 i2) = game (interf i1) (interf i2) <<^ fst
+    interfOf :: MonadFix m => String -> IO (Interface m)
+    interfOf "cH" = cpuAlphaBeta 8 <$> newStdGen
+    interfOf "cE" = cpuAlphaBeta 4 <$> newStdGen
+    interfOf "cR" = cpuRandom      <$> newStdGen
+    interfOf _    = return human
 
-    initialize = proc _ -> do
-      toSelect <- immediately -< Select
-      id -< (undefined, toSelect)
-      -- id        -< ("Welcome to Connect 4!", toSelect)
-
-    selecting = undefined
-
-    interf Human = human
-    interf CPURandom = cpuRandom undefined
-    interf (CPUAlphaBeta hard) | hard      = cpuAlphaBeta 8 undefined
-                               | otherwise = cpuAlphaBeta 2 undefined
-
-
--- game :: Monad m
---      => String    -- ^ The mystery word(s)
---      -> Auto m (HMCommand, String) (PuzzleOut, Blip String)
+    loop a = do
+      i <- fromMaybe 0 . readMaybe <$> getLine
+      let Output bout a' = runIdentity (stepAuto a i)
+      clearScreen
+      putStrLn (showOut bout)
+      when (isNothing (_boWinner bout)) (loop a')
 
 game :: forall m. MonadFix m
      => Interface m
      -> Interface m
-     -> Auto m String (C4Out, Blip Mode)
-game i1 i2 = proc i -> do
-    let comm = fmap fst . listToMaybe $ reads i
-    bout <- fastForward Nothing game' -< comm
-    nextMode <- never -< ()
-    id -< (GameOut bout, nextMode)
+     -> Auto m Int BoardOut
+game i1 i2 = fastForward Nothing game' <<^ Just
   where
     game' :: Auto m (Maybe Int) (Maybe BoardOut)
     game' = proc i -> do
       rec bout' <- delay emptyBoardOut -< bout
           move <- mux interf -< (_boNext bout', (i, bout'))
           bout <- board emptyBoard X -< fromMaybe 0 move
-      id -< bout <$ move
+      let outp = maybe (Just bout) (const Nothing) move
+      id -< outp <|> (bout <$ _boWinner bout)
     interf X = i1
     interf O = i2
 
@@ -187,63 +160,6 @@ cpuAlphaBeta lim g = proc (_, bout) -> do
     score cP (Just p) | p == cP = BMax
                       | otherwise  = BMin
     score _  Nothing  = BIn (-100)
-
-
-
--- main :: IO ()
--- main = loop
---   where
---     loop = do
---       if1 <- putStrLn "Player 1 (X):" >> pickInterface
---       if2 <- putStrLn "Player 2 (O):" >> pickInterface
---       playOut if1 if2
---     playOut if1 if2 = do
---       res <- driver if1 if2 emptyBoardOut (board emptyBoard X)
---       clearScreen
---       putStrLn (showOut res)
---       putStrLn "Rematch? (y/q)"
---       l <- getLine
---       case l of
---         'y':_ -> playOut if1 if2
---         _     -> putStrLn "Goodbye!"
---     pickInterface = do
---       putStrLn "1) Human"
---       putStrLn "2) AI Easy"
---       putStrLn "3) AI Medium"
---       putStrLn "4) AI Hard-ish"
---       putStrLn "5) Random player"
---       l <- getLine
---       case l of
---         '1':_ -> return human
---         '2':_ -> return $ cpuAlphaBeta False 2
---         '3':_ -> return $ cpuAlphaBeta False 4
---         '4':_ -> return $ cpuAlphaBeta False 8
---         '5':_ -> return cpuRandom
---         _     -> pickInterface
-
--- driver :: Interface IO
---        -> Interface IO
---        -> BoardOut
---        -> Auto Identity Int BoardOut
---        -> IO BoardOut
--- driver p1 p2 bout a =
---     case _boWinner bout of
---       Nothing -> do
---         move <- interface bout
---         case move of
---           Just m -> do
---             let Output bout' a' = runIdentity . stepAuto a $ m
---             driver p1 p2 bout' a'
---           Nothing -> do
---             putStrLn "Forfeit!"
---             return bout
---       Just _ ->
---         return bout
---   where
---     interface = case _boNext bout of
---                   X -> p1
---                   O -> p2
-
 
 board :: MonadFix m => Board -> Player -> Auto m Int BoardOut
 board b0 p0 = switchFromF gameOver (board' b0 p0)
@@ -313,6 +229,11 @@ column = mkAccum (\ps p -> take boardHeight (ps ++ [p]))
 opp :: Piece -> Piece
 opp X = O
 opp O = X
+
+readMaybe :: Read a => String -> Maybe a
+readMaybe = fmap fst . listToMaybe . reads
+
+
 
 -- Interface & AI
 
