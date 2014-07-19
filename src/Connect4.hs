@@ -43,12 +43,18 @@ data BoardOut = BoardOut { _boBoard  :: !Board
                          , _boFailed :: !Bool
                          } deriving Generic
 
+data Mode = Select | Game InterfaceType InterfaceType deriving Generic
+data InterfaceType = Human | CPURandom | CPUAlphaBeta Bool deriving Generic
+data C4Out = GameOut BoardOut | PromptInterf Player
+
 -- type Interface m = BoardOut -> m (Maybe Int)
 
-type Interface m = Auto m (Maybe Int, BoardOut) (Maybe Int, Blip ())
+type Interface m = Auto m (Maybe Int, BoardOut) (Maybe Int)
 
 instance Serialize Piece
 instance Serialize BoardOut
+instance Serialize Mode
+instance Serialize InterfaceType
 
 boardWidth, boardHeight :: Int
 boardWidth = 7
@@ -61,50 +67,70 @@ emptyBoardOut :: BoardOut
 emptyBoardOut = BoardOut emptyBoard Nothing X False
 
 main :: IO ()
-main = do
-    g <- getStdGen
-    let a0 = driver human (cpuAlphaBeta 8 g)
-    loop a0
-  where
-    loop a = do
-      l <- getLine
-      let Output bout a' = runIdentity (stepAuto a l)
-      clearScreen
-      putStrLn (showOut bout)
-      when (isNothing (_boWinner bout)) $ loop a'
+main = putStrLn "hello"
+-- main = do
+--     g <- getStdGen
+--     let a0 = game human (cpuAlphaBeta 8 g)
+--     loop a0
+--   where
+--     loop a = do
+--       l <- getLine
+--       let Output bout a' = runIdentity (stepAuto a l)
+--       clearScreen
+--       putStrLn (showOut bout)
+--       when (isNothing (_boWinner bout)) $ loop a'
 
-driver :: forall m. MonadFix m => Interface m -> Interface m -> Auto m String BoardOut
-driver i1 i2 = proc i -> do
-    let comm = fromMaybe 0 . fmap fst . listToMaybe $ reads i
-    (bouts, _) <- skipTo driver' -< comm
-    id -< last bouts
+driver :: forall m. MonadFix m => StdGen -> Auto m String (Maybe String)
+driver g0 = proc inp -> do
+    g    <- stdRands split g0 -< ()
+    outp <- switchFromF mode initialize -< (inp, g)
+    id   -< Nothing
   where
-    driver' :: Auto m (Maybe Int) (BoardOut, Blip ())
-    driver' = proc i -> do
+    mode :: Mode -> Auto m (String, StdGen) (C4Out, Blip Mode)
+    mode Select       = selecting
+    mode (Game i1 i2) = game (interf i1) (interf i2) <<^ fst
+
+    initialize = proc _ -> do
+      toSelect <- immediately -< Select
+      id -< (undefined, toSelect)
+      -- id        -< ("Welcome to Connect 4!", toSelect)
+
+    selecting = undefined
+
+    interf Human = human
+    interf CPURandom = cpuRandom undefined
+    interf (CPUAlphaBeta hard) | hard      = cpuAlphaBeta 8 undefined
+                               | otherwise = cpuAlphaBeta 2 undefined
+
+
+-- game :: Monad m
+--      => String    -- ^ The mystery word(s)
+--      -> Auto m (HMCommand, String) (PuzzleOut, Blip String)
+
+game :: forall m. MonadFix m
+     => Interface m
+     -> Interface m
+     -> Auto m String (C4Out, Blip Mode)
+game i1 i2 = proc i -> do
+    let comm = fmap fst . listToMaybe $ reads i
+    bout <- fastForward Nothing game' -< comm
+    nextMode <- never -< ()
+    id -< (GameOut bout, nextMode)
+  where
+    game' :: Auto m (Maybe Int) (Maybe BoardOut)
+    game' = proc i -> do
       rec bout' <- delay emptyBoardOut -< bout
-          (move, req) <- mux interf -< (_boNext bout', (i, bout'))
+          move <- mux interf -< (_boNext bout', (i, bout'))
           bout <- board emptyBoard X -< fromMaybe 0 move
-      if isJust (_boWinner bout)
-        then do
-          leave <- immediately -< ()
-          id     -< (bout, leave)
-        else
-          id     -< (bout, req  )
+      id -< bout <$ move
     interf X = i1
     interf O = i2
 
 human :: Monad m => Interface m
-human = proc (i, _) -> do
-    req <- case i of
-             Just _  -> never -< ()
-             Nothing -> onJusts -< Just ()
-    id -< (i,  req)
+human = arr fst
 
 cpuRandom :: Monad m => StdGen -> Interface m
-cpuRandom g = proc (_, _) -> do
-    req <- never -< ()
-    move <- stdRands (randomR (1, boardWidth)) g -< ()
-    id -< (Just move, req)
+cpuRandom g = Just <$> stdRands (randomR (1, boardWidth)) g
 
 -- to try out --- some sort of "retry" ?
 cpuAlphaBeta :: Monad m => Int -> StdGen -> Interface m
@@ -122,8 +148,7 @@ cpuAlphaBeta lim g = proc (_, bout) -> do
         (res, _)   = maxi checkOrder currP lim' BMin BMax a0
         trueRes    = res <|> Just (head checkOrder)
 
-    req <- never -< ()
-    id -< (trueRes, req)
+    id -< trueRes
   where
     maxi :: [Int]                         -- ^ check order
          -> Player                        -- ^ maximizing player
@@ -162,15 +187,6 @@ cpuAlphaBeta lim g = proc (_, bout) -> do
     score cP (Just p) | p == cP = BMax
                       | otherwise  = BMin
     score _  Nothing  = BIn (-100)
-    -- heuristic :: Player -> Auto Identity Int BoardOut -> Double
-    -- heuristic maxP a0 = sum . map findTraps $ [1 .. boardWidth]
-    --   where
-    --     findTraps m =
-    --       let Output bout _ = runIdentity $ stepAuto (accelerate 2 a0) m
-    --       in  case _boWinner (last bout) of
-    --             Just (Just p) | p == maxP -> 1
-    --                           | otherwise  -> (-1)
-    --             _             -> 0
 
 
 
