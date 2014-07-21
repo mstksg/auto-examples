@@ -6,9 +6,9 @@
 
 -- | Usage:
 --
--- $ connect4 [interface X] [interface O]
+-- $ connect4 [controller X] [controller O]
 --
--- Interfaces:
+-- Controllers:
 --   * h : human
 --   * cR: computer (random moves)
 --   * cE: computer (easy)
@@ -19,7 +19,7 @@
 
 module Main (main) where
 
-import Control.Auto hiding             (loop)
+import Control.Auto hiding         (loop)
 import Control.Auto.Blip
 import Control.Auto.Collection
 import Control.Auto.Process.Random
@@ -27,19 +27,19 @@ import Control.Auto.Switch
 import Control.Auto.Time
 import Control.Monad
 import Control.Monad.Fix
-import Data.Foldable                   (toList)
-import Data.Function hiding            ((.), id)
+import Data.Foldable               (toList)
+import Data.Function hiding        ((.), id)
 import Data.Functor.Identity
 import Data.List
 import Data.Maybe
 import Data.Ord
 import Data.Serialize
 import GHC.Generics
-import Prelude hiding                  ((.), id, mapM_)
+import Prelude hiding              ((.), id, mapM_)
 import System.Console.ANSI
 import System.Environment
 import System.Random
-import qualified Data.Map.Strict       as M
+import qualified Data.Map.Strict   as M
 
 -- Types
 type Board  = [Column]
@@ -59,15 +59,15 @@ data BoardOut = BoardOut { _boBoard  :: !Board
                          , _boFailed :: !Bool
                          } deriving Generic
 
--- The type of the generic interfaces (human, CPU, etc).  If the output is
+-- The type of the generic controllers (human, CPU, etc).  If the output is
 --   Just, it means...that's the move it wants to make.  If the output is
---   Nothing, then the Interface is "asking" for a User input (the Maybe
+--   Nothing, then the Controller is "asking" for a User input (the Maybe
 --   Int).
-type Interface m = Auto m (Maybe Int, BoardOut) (Maybe Int)
---                         ^          ^          ^
---                         |          |          +-- Possible output
---                         |          +-- Game output, for decision making
---                         +-- Possible user input
+type Controller m = Auto m (Maybe Int, BoardOut) (Maybe Int)
+--                          ^          ^          ^
+--                          |          |          +-- Possible output
+--                          |          +-- Game output, for decision making
+--                          +-- Possible user input
 
 instance Serialize Piece
 instance Serialize BoardOut
@@ -85,21 +85,21 @@ emptyBoardOut = BoardOut emptyBoard Nothing X False
 
 main :: IO ()
 main = do
-    -- build the two interfaces, from command line arguments.
+    -- build the two controllers, from command line arguments.
     args <- getArgs
-    (iX, iO) <- case args of
+    (cX, cO) <- case args of
                   []      -> (,) <$> interfOf "h" <*> interfOf "cH"
-                  iO:[]   -> (,) <$> interfOf "h" <*> interfOf iO
-                  iX:iO:_ -> (,) <$> interfOf iX  <*> interfOf iO
+                  cO:[]   -> (,) <$> interfOf "h" <*> interfOf cO
+                  cX:cO:_ -> (,) <$> interfOf cX  <*> interfOf cO
 
     -- The initial game Auto
-    let gameAuto = game iX iO
+    let gameAuto = game cX cO
 
     -- off we go!
     loop gameAuto 0
   where
-    -- Build interfaces from command line arguments.
-    interfOf :: MonadFix m => String -> IO (Interface m)
+    -- Build controllers from command line arguments.
+    interfOf :: MonadFix m => String -> IO (Controller m)
     interfOf "cH" = cpuAlphaBeta 8 <$> newStdGen
     interfOf "cE" = cpuAlphaBeta 4 <$> newStdGen
     interfOf "cR" = cpuRandom      <$> newStdGen
@@ -114,16 +114,16 @@ main = do
         i1 <- fromMaybe 0 . readMaybe <$> getLine
         loop a' i1
 
--- the main game Auto.  Given two interfaces.
+-- the main game Auto.  Given two controllers.
 --
--- Interfaces are just a type alias for a normal Auto:
+-- Controllers are just a type alias for a normal Auto:
 --
--- > type Interface m = Auto m (Maybe Int, BoardOut) (Maybe Int)
+-- > type Controller m = Auto m (Maybe Int, BoardOut) (Maybe Int)
 --
 -- See the definition of the type for details on what each field means.
 game :: forall m. MonadFix m
-     => Interface m           -- ^ X Player
-     -> Interface m           -- ^ O Player
+     => Controller m          -- ^ X Player
+     -> Controller m          -- ^ O Player
      -> Auto m Int BoardOut   -- ^ Game Auto
      --        ^   ^
      --        |   +-- Game output
@@ -139,11 +139,11 @@ game :: forall m. MonadFix m
 --   essense, you get an Auto that "always returns 'Just'"...by "fast
 --   fowarding" over the 'Nothing's.  Like TiVo!
 --
-game iX iO = fastForward Nothing game' <<^ Just
+game cX cO = fastForward Nothing game' <<^ Just
   where
     -- the fast-forwarded game Auto.  It feeds the input directly to the
-    --   Interface whose current turn it is, and then outputs a 'Just'
-    --   containing the resulting 'BoardOut' whenever an interface
+    --   Controller whose current turn it is, and then outputs a 'Just'
+    --   containing the resulting 'BoardOut' whenever an controller
     --   "requests" player input.  Also outputs a 'Just' when the game is
     --   over.
     game' :: Auto m (Maybe Int) (Maybe BoardOut)
@@ -154,8 +154,8 @@ game iX iO = fastForward Nothing game' <<^ Just
           --               "non-fastforwarded" tick.
     game' = proc i -> do
           -- the current BoardOut, bout, is the "last value" of newBout.
-          --   We will use this to give to our interfaces, so that they can
-          --   decide their next moves.
+          --   We will use this to give to our controllers, so that they
+          --   can decide their next moves.
       rec bout     <- lastVal emptyBoardOut -< newBout
           -- feed (i, bout) (the player input, and the current board) to
           --   the player playing next, _boNext bout.
@@ -168,7 +168,7 @@ game iX iO = fastForward Nothing game' <<^ Just
           -- For example, if you pass in (X, (Just 1, bout)), then it'll
           --   pass in (Just 1, bout) to the X Auto.  'interf' is the
           --   function that maps the key to the Auto, so the X Auto is
-          --   'interf X' = 'iX', the X interface.
+          --   'interf X' = 'cX', the X controller.
           move     <- mux interf            -< (_boNext bout, (i, bout))
 
           -- feed the retrieved move into the Board auto.
@@ -181,12 +181,12 @@ game iX iO = fastForward Nothing game' <<^ Just
                      -- If no winner...
                      Nothing -> case move of
                                   -- if a move was received from an
-                                  --   Interface, all is good; no need to
+                                  --   Controller, all is good; no need to
                                   --   output anything.  The "fast
                                   --   forwarding" continues.
                                   Just _  -> Nothing
                                   -- if no move is received from an
-                                  --   interface, then we need to spark
+                                  --   controller, then we need to spark
                                   --   some player interaction.  Return
                                   --   a Just to "halt" the
                                   --   fast-forwarding, and ask for input.
@@ -195,9 +195,9 @@ game iX iO = fastForward Nothing game' <<^ Just
       -- spit out the output.
       id -< output
 
-    -- the correct interface for the player piece.
-    interf X = iX
-    interf O = iO
+    -- the correct controller for the player piece.
+    interf X = cX
+    interf O = cO
 
 
 -- board: behave like 'board b0 p0' until a 'Blip' is received...then
@@ -367,39 +367,39 @@ readMaybe = fmap fst . listToMaybe . reads
 
 
 
--- Interface & AI
+-- Controller & AI
 
 -- Ord-to-bound promoter for AI purposes and fast comparisons.
 data Bounder a = BMin | BIn a | BMax deriving (Eq, Show, Generic)
 
 instance Ord a => Ord (Bounder a) where
-    compare BMin BMin = EQ
-    compare BMin _    = LT
-    compare BMax BMax = EQ
-    compare BMax _    = GT
-    compare (BIn _) BMin = GT
-    compare (BIn _) BMax = LT
+    compare BMin    BMin    = EQ
+    compare BMin    _       = LT
+    compare BMax    BMax    = EQ
+    compare BMax    _       = GT
+    compare (BIn _) BMin    = GT
+    compare (BIn _) BMax    = LT
     compare (BIn x) (BIn y) = compare x y
 
 instance Serialize a => Serialize (Bounder a)
 
--- a human interface.  Basically, whatever is received is what is
---   outputted.  Remember that an Interface receives a (Maybe Int,
+-- a human controller.  Basically, whatever is received is what is
+--   outputted.  Remember that an Controller receives a (Maybe Int,
 --   BoardOut), and outputs a (Maybe Int).  So 'arr fst' just echos out
 --   that Maybe Int.
 --
 -- So, when there is user input (Just), echo out that user input.  When
 -- there isn't any (Nothing), "request" new input (Nothing).
-human :: Monad m => Interface m
+human :: Monad m => Controller m
 human = arr fst
 
--- A randomized interface.  Ignores its input and outputs Just a random
+-- A randomized controller.  Ignores its input and outputs Just a random
 --   number between 1 and boardWidth at every tick.  Never requires user
 --   input.
-cpuRandom :: Monad m => StdGen -> Interface m
+cpuRandom :: Monad m => StdGen -> Controller m
 cpuRandom g = Just <$> stdRands (randomR (1, boardWidth)) g
 
--- CPU interface with minimax featuring alpha beta pruning.  A somewhat
+-- CPU controller with minimax featuring alpha beta pruning.  A somewhat
 --   minimal understanding of the minimax + α/β pruning algorithm is
 --   assumed :)
 --
@@ -415,7 +415,7 @@ cpuRandom g = Just <$> stdRands (randomR (1, boardWidth)) g
 cpuAlphaBeta :: MonadFix m
              => Int           -- ^ the suggested lookahead
              -> StdGen        -- ^ shuffling seed
-             -> Interface m
+             -> Controller m
 cpuAlphaBeta lim g = proc (_, bout) -> do
         -- lastRetry is whether or not the last "tick" resulted in a retry.
     rec lastRetry <- lastVal False -< retry
