@@ -22,8 +22,8 @@ executable hangman
   -- other-extensions:    
   build-depends:       base >=4.7 && <4.8
                      , auto
-                     , transformers
                      , random
+                     , transformers
   hs-source-dirs:      src
   default-language:    Haskell2010
 
@@ -34,9 +34,9 @@ executable logger
   -- other-extensions:    
   build-depends:       base >=4.7 && <4.8
                      , auto
+                     , old-locale
                      , time
                      , transformers
-                     , old-locale
   hs-source-dirs:      src
   default-language:    Haskell2010
 
@@ -47,11 +47,11 @@ executable chatbot
   -- other-extensions:    
   build-depends:       base >=4.7 && <4.8
                      , auto
-                     , simpleirc
-                     , containers
-                     , time
                      , bytestring
                      , cereal
+                     , containers
+                     , simpleirc
+                     , time
                      , transformers
   hs-source-dirs:      src
   default-language:    Haskell2010
@@ -62,10 +62,26 @@ executable life
   -- other-modules:       
   -- other-extensions:    
   build-depends:       base >=4.7 && <4.8
+                     , ansi-terminal
                      , auto
                      , cereal
                      , profunctors
-                     , ansi-terminal
   hs-source-dirs:      src
+  default-language:    Haskell2010
+
+executable connect4
+  main-is:             Connect4.hs
+  hs-source-dirs:      src
+  -- other-modules:       
+  -- other-extensions:    
+  build-depends:       base >=4.7 && <4.8
+                     , ansi-terminal
+                     , auto
+                     , cereal
+                     , containers
+                     , transformers
+                     , random
+  hs-source-dirs:      src
+  ghc-options:         -O2
   default-language:    Haskell2010
 

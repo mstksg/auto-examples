@@ -24,6 +24,7 @@ data Cell = Dead | Alive
 type Grid = [[Cell]]
 type Neighborhood = [Cell]
 
+-- make Cell serializable for stateful Autos to work
 instance Serialize Cell
 
 -- Starting grid.  A glider, a blinker, a boat, and a beehive.
@@ -70,7 +71,7 @@ board g0 = proc _ -> do
             -- a list of every possible "shift" of 'cellGrid'
         let shiftedGrids :: [Grid]
             shiftedGrids = map ($ cells) allShifts
-            -- going across each Grid in 'shfitedGrids', and accumulating
+            -- going across each Grid in 'shiftedGrids', and accumulating
             --   the cells in every spot.  Basically returns a Grid of
             --   Neighborhoods, where every spot is associated with
             --   a Neighborhood.
