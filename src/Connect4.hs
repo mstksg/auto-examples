@@ -399,31 +399,78 @@ human = arr fst
 cpuRandom :: Monad m => StdGen -> Interface m
 cpuRandom g = Just <$> stdRands (randomR (1, boardWidth)) g
 
--- CPU interface with minimax featuring alpha beta pruning.  Will probably
---   comment more later.
-cpuAlphaBeta :: MonadFix m => Int -> StdGen -> Interface m
+-- CPU interface with minimax featuring alpha beta pruning.  A somewhat
+--   minimal understanding of the minimax + α/β pruning algorithm is
+--   assumed :)
+--
+-- Right now the heuristic isn't too sophisticated.  It rates a victory as
+-- +infinity, a loss as -infinity, and neither as 0 ;D
+--
+-- Implements a "retry" feature: if it sees that the opponent can
+--   potentially force a win several moves ahead, it actually re-tries the
+--   search with a smaller lookahead.  This is because often times, the
+--   algorithm will spot a forced victory before the opponent does...and it
+--   would just throw up its hands and give up.  The retry allows it to try
+--   again and try to optimize for the short-term instead of the long-term.
+cpuAlphaBeta :: MonadFix m
+             => Int           -- ^ the suggested lookahead
+             -> StdGen        -- ^ shuffling seed
+             -> Interface m
 cpuAlphaBeta lim g = proc (_, bout) -> do
+        -- lastRetry is whether or not the last "tick" resulted in a retry.
     rec lastRetry <- lastVal False -< retry
 
+            -- currP: current (maximizing) player.
         let currP = _boNext bout
+            -- bo0: the initial BoardOut
             bo0   = _boBoard bout
+            -- a0: the initial board Auto
             a0    = board bo0 currP
-            retry = gl == BMin && not lastRetry
+            -- lim: the true lookahead limit.  is constrained to 2 if the
+            --   last move resulted in a retry, or else the number of
+            --   pieces on the board, so we don't waste time doing an
+            --   expensive search on the first few moves of the game.
             lim'  | lastRetry = 2
                   | otherwise = min (length (concat bo0) * 2) lim
 
+        -- weights on which to assign potential moves, if it comes down to
+        --   a random choice between equally good moves.
+        --
+        -- stdRands (random g) outputs a new random Double every tick.
+        --   'accelerate boardWidth' makes it output 'boardWidth' Doubles
+        --   every tick, in a list.
         weights <- accelerate boardWidth (stdRands random g) -< ()
 
+            -- order in which to check the moves.  basically a fisher-yates
+            --   shuffle based on 'weights'
         let checkOrder = map fst . sortBy (comparing snd)
                        . zip [1 .. boardWidth]
                        $ (weights :: [Double])
+            -- result, goal: the result of the minimax algorithm.  result
+            --   is the best move, and goal is the "best we can do if the
+            --   opponent plays perfectly" position after that move is
+            --   made.
             (res, gl)  = maxi checkOrder currP lim' BMin BMax a0
+            -- retry: if this should be a retry.  That is, if the opponent
+            --   can force a win --- of gl, the "best we can do if the
+            --   opponent plays perfectly", is a loss.
+            retry = gl == BMin && not lastRetry
+            -- the actual result to output.  If 'res' is Nothing (the maxi
+            --   algorithm doesn't find any valid moves), then just output
+            --   a random result instead.
             trueRes    = res <|> Just (head checkOrder)
-            retryRes   | retry     = 0 <$ trueRes
-                       | otherwise = trueRes
 
-    id -< retryRes
+    id -< if retry
+            -- if a retry is desired, we output a bogus move that the
+            --   'board' auto will reject, so it'll "retry" us for another
+            --   reuslt.
+            then Just 0
+            -- otherwise, here's the move!
+            else trueRes
   where
+    -- minimax.  Nothing too related to 'Auto' here...mostly just
+    --   a not-so-clean implementaiton of minimax w/ alpha beta pruning in
+    --   Haskell :)
     maxi :: [Int]                         -- ^ check order
          -> Player                        -- ^ maximizing player
          -> Int                           -- ^ limit
