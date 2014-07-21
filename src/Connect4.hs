@@ -59,7 +59,10 @@ data BoardOut = BoardOut { _boBoard  :: !Board
                          , _boFailed :: !Bool
                          } deriving Generic
 
---   The type of the generic interfaces (human, CPU, etc).
+-- The type of the generic interfaces (human, CPU, etc).  If the output is
+--   Just, it means...that's the move it wants to make.  If the output is
+--   Nothing, then the Interface is "asking" for a User input (the Maybe
+--   Int).
 type Interface m = Auto m (Maybe Int, BoardOut) (Maybe Int)
 --                         ^          ^          ^
 --                         |          |          +-- Possible output
@@ -380,13 +383,24 @@ instance Ord a => Ord (Bounder a) where
 
 instance Serialize a => Serialize (Bounder a)
 
+-- a human interface.  Basically, whatever is received is what is
+--   outputted.  Remember that an Interface receives a (Maybe Int,
+--   BoardOut), and outputs a (Maybe Int).  So 'arr fst' just echos out
+--   that Maybe Int.
+--
+-- So, when there is user input (Just), echo out that user input.  When
+-- there isn't any (Nothing), "request" new input (Nothing).
 human :: Monad m => Interface m
 human = arr fst
 
+-- A randomized interface.  Ignores its input and outputs Just a random
+--   number between 1 and boardWidth at every tick.  Never requires user
+--   input.
 cpuRandom :: Monad m => StdGen -> Interface m
 cpuRandom g = Just <$> stdRands (randomR (1, boardWidth)) g
 
--- to try out --- some sort of "retry" ?
+-- CPU interface with minimax featuring alpha beta pruning.  Will probably
+--   comment more later.
 cpuAlphaBeta :: MonadFix m => Int -> StdGen -> Interface m
 cpuAlphaBeta lim g = proc (_, bout) -> do
     rec lastRetry <- lastVal False -< retry
