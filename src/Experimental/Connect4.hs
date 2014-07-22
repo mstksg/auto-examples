@@ -132,12 +132,12 @@ game :: forall m. MonadFix m
 --
 -- > fastFoward :: a -> Auto m a (Maybe b) -> Auto m a b
 --
--- Basically, it takes a default value and an Auto returning 'Maybe b', and
---   then, whenever that Auto is "run"/ticked, it repeatedly runs the Auto
---   until it gets a 'Just' result.  It is initially run with the input,
---   and then afterwards "fast forwarded" with the default input.  In
---   essense, you get an Auto that "always returns 'Just'"...by "fast
---   fowarding" over the 'Nothing's.  Like TiVo!
+-- Basically, 'fastFoward' takes a default value and an Auto returning
+--   'Maybe b', and then, whenever that Auto is "run"/ticked, it repeatedly
+--   runs the Auto until it gets a 'Just' result.  It is initially run with
+--   the input, and then afterwards "fast forwarded" with the default
+--   input.  In essense, you get an Auto that "always returns 'Just'"...by
+--   "fast fowarding" over the 'Nothing's.  Like TiVo!
 --
 game cX cO = fastForward Nothing game' <<^ Just
   where

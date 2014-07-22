@@ -144,12 +144,51 @@ non-interactive automation/simulation/cellular automaton.  In the technical
 aspects, a demonstration of the `rec`/`ArrowLoop` mechanisms for recursive,
 graph-like Auto connections.
 
+[cgol]: http://en.wikipedia.org/wiki/Conway's_Game_of_Life
+
 I consider this to be another compelling demonstration of the power of
 denotative style.  The thing is laid out very graph-like, using recursive
 bindings, and the entire "step" is, at the (abstracted away) low-level,
 finding a fixed point of a graph of functions.  Some nice practice with the
 various `Blip` combinators, as well!
 
-[cgol]: http://en.wikipedia.org/wiki/Conway's_Game_of_Life
+I might one day expand this to use a GUI, so you it can also show graphics
+applications.
 
+### Experimental
+
+#### connect4
+
+This example has a lot of distinct things involved, and I'm still sort of
+working it out for maximum demonstrative purposes.
+
+1.  It has an AI algorithm -- an implementation of minimax w/ alpha-beta
+    pruning -- that carries the Auto of the game board with it...and
+    "progresses it" in a different way down every branch of the game tree.
+    Instead of passing a parameter with the game state, it passes around "the
+    game itself", and "runs"/re-clones it for every new branch of the game
+    tree.
+
+2.  It uses `lastVal` several times, which basically lets you use the
+    "previous value" of a variable, from the past tick.  This is very useful
+    for recursive bindings, where you want to have access to both the
+    "current" value, and the "previous value".
+
+3.  It uses `mux` and `gather`, which are Auto "multiplexers" and "gatherers".
+    It uses `mux` to basically manage the pool of "Controllers" (players in
+    the game), and "run" the desired one, dynamically.  `gather` does a
+    similar thing, except it gathers all of the results so far in an output
+    Map.
+
+    These are powerful tools for managing dynamic collections of Autos, and
+    routing the proper messages to the proper ones that need them.
+
+4.  It uses `fastForward`, which allows you to turn an `Auto m a (Maybe b)`
+    into an `Auto m a b` by "skipping over" the `Nothing`s,
+    manipulating/warping time to fit your needs.  This is used to allow the
+    `game'` auto to "ask for input" when it needs input (on `Just request`)
+    and "skip over and happily run along" when it doesn't (on `Nothing`).
+
+    (Not sure how useful of an abstraction this is at this point...it might be
+    better to let the actual driver/runner handle it.)
 

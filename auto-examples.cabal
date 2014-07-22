@@ -71,7 +71,7 @@ executable life
 
 executable connect4
   main-is:             Connect4.hs
-  hs-source-dirs:      src
+  hs-source-dirs:      src/Experimental/
   -- other-modules:       
   -- other-extensions:    
   build-depends:       base >=4.7 && <4.8
