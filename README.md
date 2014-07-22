@@ -155,9 +155,13 @@ various `Blip` combinators, as well!
 I might one day expand this to use a GUI, so you it can also show graphics
 applications.
 
-### Experimental
+Experimental
+------------
 
-#### connect4
+Some things I've just been working on...they aren't really here as good
+examples yet, but I'm working on making them fit into the bigger picture :)
+
+### connect4
 
 This example has a lot of distinct things involved, and I'm still sort of
 working it out for maximum demonstrative purposes.
