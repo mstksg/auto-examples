@@ -96,18 +96,15 @@ seenBot = proc (InMessage nick msg _ time) -> do
     seens <- mkAccum (\m (n, t) -> M.insert n t m) M.empty -< (nick, time)
 
         -- output
-    let out = case words msg of
-                -- if a command, look up the request and output a report.
-                "@seen":req:_ ->
-                  [ case M.lookup req seens of
-                      Just t  -> "'" ++ req ++ "' last seen at " ++ show t ++ "."
-                      Nothing -> "No record of '" ++ req ++ "'." ]
+    id -< case words msg of
+            -- if a command, look up the request and output a report.
+            "@seen":req:_ ->
+              [ case M.lookup req seens of
+                  Just t  -> "'" ++ req ++ "' last seen at " ++ show t ++ "."
+                  Nothing -> "No record of '" ++ req ++ "'." ]
                 -- otherwise, nothing.
-                _             ->
-                  mzero
-
-    -- send it out as the Auto output
-    id -< out
+            _             ->
+              mzero
 
 -- karmaBot: Maintains a map of nicks and associated "karma" --- users can
 --   increase a nick's karma by saying '@addKarma [nick]`...can subtract by

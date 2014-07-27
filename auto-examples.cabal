@@ -96,3 +96,29 @@ executable connect4
   ghc-options:         -O2
   default-language:    Haskell2010
 
+executable mhmc
+  main-is:             MHMC.hs
+  hs-source-dirs:      src
+  -- other-modules:       
+  -- other-extensions:    
+  build-depends:       base >=4.7 && <4.8
+                     , auto
+                     , random
+                     , transformers
+  hs-source-dirs:      src
+  ghc-options:         -O2
+  default-language:    Haskell2010
+
+executable adventure
+  main-is:             Adventure.hs
+  hs-source-dirs:      src
+  -- other-modules:       
+  -- other-extensions:    
+  build-depends:       base >=4.7 && <4.8
+                     , auto
+                     , random
+                     , transformers
+                     , containers
+  hs-source-dirs:      src
+  ghc-options:         -O2
+  default-language:    Haskell2010
