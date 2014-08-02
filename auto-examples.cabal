@@ -105,8 +105,9 @@ executable mhmc
                      , auto
                      , random
                      , transformers
+                     , repa
   hs-source-dirs:      src
-  ghc-options:         -O2
+  ghc-options:         -O2 -threaded
   default-language:    Haskell2010
 
 executable adventure
@@ -119,6 +120,17 @@ executable adventure
                      , random
                      , transformers
                      , containers
+  hs-source-dirs:      src
+  ghc-options:         -O2
+  default-language:    Haskell2010
+
+executable recursive
+  main-is:             Recursive.hs
+  hs-source-dirs:      src
+  -- other-modules:       
+  -- other-extensions:    
+  build-depends:       base >=4.7 && <4.8
+                     , auto
   hs-source-dirs:      src
   ghc-options:         -O2
   default-language:    Haskell2010

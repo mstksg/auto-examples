@@ -137,6 +137,80 @@ Working with streams of blips, "scanning over them" (like `mkAccum` but with
 blips), and consolidating blip streams back into normal streams are all
 demonstrated.
 
+### recursive
+
+Three simple demonstrations of using recursive bindings.  Basically, this
+allows you even greater power in specifying relationships, in a graph-like
+style.  The library (with the help of proc syntax) basically "ties the loop"
+*for* you (if it's possible).
+
+The first demonstration is a Fibonacci sequence, to demonstrate how to
+basically step through a recursive series without explicit memoization of
+previous values.  They're all "accessible" using `delay`, in constant space.
+
+The second demonstration is a power-of-twos series, using the definition `z_n
+= z_(n-1) + z_(n-1)`.   Not really anything special, but it's trippy to see
+a variable used in a recursive definition of itself!
+
+The third is a neat implementation of the [PI controller algorithm][pid] in
+order to tune an opaque system to a desired setpoint/goal response.
+
+[pid]: http://en.wikipedia.org/wiki/PID_controller
+
+The algorithm itself is explained in the program, but one thing important to
+note is that this example clearly shows a demonstration on how to "wrangle"
+recursive bindings in a way that makes sense.
+
+The main algorithm is this:
+
+~~~haskell
+rec let err = goal - currResponse
+
+    errIntegral  <- summer 0  -< err
+
+    let p = kp * err
+        i = ki * errIntegral
+
+    control      <- summer c0 -< p + i
+    currResponse <- system    -< control
+~~~
+
+This looks a lot like how you would describe the algorithm from a high level.
+"The error is the difference between the goal and the current response, and
+the integral of the error is the cumulative sum of the errors.  The *p*
+contribution is kp times the current error; the *i* contribution is ki times
+the error integral.  The new control value is the cumulative sum of the *p*
+and *i* contributions.  The response is the what happens when you feed the
+control value to the system."
+
+This actually doesn't work initially...because...how would you get it started?
+Everything depends on everything else.
+
+The key is that we need to have one value that can get its "first value"
+without any other input.  That is our "key", our "base case", which allows for
+the knot-tying to work.
+
+We can introduce that in two ways:
+
+~~~haskell
+control <- summerD c0 -< p + i
+~~~
+
+`summerD` is like `summer`, except it outputs `c0` on its first step, before
+adding anything.  Now, `control` is a value that doesn't "need anything" to
+get its first/immediate value, so everything works!
+
+~~~haskell
+currResponse <- system . delay c0 -< control
+~~~
+
+`delay` is like `id`, except it outputs `c0` on its first step (and delays
+everything by one).  Again, the same goal is reached, and either of these
+fixes allow for the whole thing to work.
+
+So yeah, this example is intended to be a nice reference sheet when working
+with recursive bindings.
+
 ### life
 
 [Conway's Game of Life][cgol] implementation.  Demonstration of
@@ -173,10 +247,10 @@ working it out for maximum demonstrative purposes.
     game itself", and "runs"/re-clones it for every new branch of the game
     tree.
 
-2.  It uses `lastVal` several times, which basically lets you use the
-    "previous value" of a variable, from the past tick.  This is very useful
-    for recursive bindings, where you want to have access to both the
-    "current" value, and the "previous value".
+2.  It demonstrates a safe usage of `lastVal`/`delay`, which is necessary for
+    working well with recursive bindings.  Explicitly using `delay` or
+    `lastVal` lets you really explicitly say what depends on what, in terms of
+    time, so you don't go into an infinite loop.
 
 3.  It uses `mux` and `gather`, which are Auto "multiplexers" and "gatherers".
     It uses `mux` to basically manage the pool of "Controllers" (players in
