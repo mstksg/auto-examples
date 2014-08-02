@@ -67,14 +67,13 @@ perRoom cb' = proc im -> do
 seenBot :: Monad m => ChatBot' m
 seenBot = proc (InMessage nick msg _ time) -> do
     seens <- mkAccum (\m (n, t) -> M.insert n t m) M.empty -< (nick, time)
-    let out = case words msg of
-                "@seen":req:_ ->
-                  [ case M.lookup req seens of
-                      Just t  -> "'" ++ req ++ "' last seen at " ++ show t ++ "."
-                      Nothing -> "No record of '" ++ req ++ "'." ]
-                _             ->
-                  mzero
-    id -< out
+    id -< case words msg of
+            "@seen":req:_ ->
+              [ case M.lookup req seens of
+                  Just t  -> "'" ++ req ++ "' last seen at " ++ show t ++ "."
+                  Nothing -> "No record of '" ++ req ++ "'." ]
+            _             ->
+              mzero
 
 karmaBot :: Monad m => ChatBot' m
 karmaBot = proc (InMessage _ msg _ _) -> do
