@@ -37,7 +37,9 @@ And the executables should all be in `./.cabal-sandbox/bin` of the
 Examples
 --------
 
-### hangman
+### [hangman][]
+
+[hangman]: https://github.com/mstksg/auto-examples/blob/master/src/Hangman.hs
 
 A fully featured command-line hangman game.  Made to demonstrate many
 high-level features, like the composition of locally stateful autos with
@@ -60,14 +62,18 @@ commenting).  Part of this is because Hangman is pretty simple.  But I really
 feel like the whole thing "reads" well, and is in a more understandable
 high-level declarative/denotative style than such an approach.
 
-### logger
+### [logger][]
+
+[logger]: https://github.com/mstksg/auto-examples/blob/master/src/Logger.hs
 
 Mostly used to demonstrate "automatic serialization".  Using the `serializing`
 combinator, we transform a normal auto representing a logging process into an
 auto that automatically, implicitly, and constantly serializes itself...and
 automatically re-loads the saved state on the program initialization.
 
-### chatbot
+### [chatbot][]
+
+[chatbot]: https://github.com/mstksg/auto-examples/blob/master/src/Chatbot.hs
 
 Lots of concepts demonstrated here.  In fact, this was one of the motivating
 reasons for the entire *auto* library in the first place.
@@ -137,7 +143,9 @@ Working with streams of blips, "scanning over them" (like `mkAccum` but with
 blips), and consolidating blip streams back into normal streams are all
 demonstrated.
 
-### recursive
+### [recursive][]
+
+[recursive]: https://github.com/mstksg/auto-examples/blob/master/src/Recursive.hs
 
 Three simple demonstrations of using recursive bindings.  Basically, this
 allows you even greater power in specifying relationships, in a graph-like
@@ -211,7 +219,9 @@ fixes allow for the whole thing to work.
 So yeah, this example is intended to be a nice reference sheet when working
 with recursive bindings.
 
-### life
+### [life][]
+
+[life]: https://github.com/mstksg/auto-examples/blob/master/src/Life.hs
 
 [Conway's Game of Life][cgol] implementation.  Demonstration of
 non-interactive automation/simulation/cellular automaton.  In the technical
@@ -235,7 +245,9 @@ Experimental
 Some things I've just been working on...they aren't really here as good
 examples yet, but I'm working on making them fit into the bigger picture :)
 
-### connect4
+### [connect4][]
+
+[connect4]: https://github.com/mstksg/auto-examples/blob/master/src/Experimental/Connect4.hs
 
 This example has a lot of distinct things involved, and I'm still sort of
 working it out for maximum demonstrative purposes.
