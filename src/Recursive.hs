@@ -10,8 +10,8 @@ import Control.Monad.Fix
 import Prelude hiding ((.), id)
 
 -- The Fibonacci sequence, implemented using 'lastVal'.  In this, `z` is
--- `x + y`, where `x` is `z` delayed by two steps, and `y` is `z` delayed
--- by one step.
+--   `x + y`, where `x` is `z` delayed by two steps, and `y` is `z` delayed
+--   by one step.
 --
 -- In mathy terms, this means: z_n = z_(n-2) + z_(n-1).
 --
@@ -24,8 +24,8 @@ fib = proc _ -> do
     id -< x
 
 -- An exponential series: powers of 2.  `x + x` is fed to a delayed version
--- of itself.  That is, `x` starts at 1; the next value is `1 + 1`, 2; the
--- next value is `2 + 2`, 4, etc.
+--   of itself.  That is, `x` starts at 1; the next value is `1 + 1`, 2;
+--   the next value is `2 + 2`, 4, etc.
 --
 -- In mathy terms, this algorithm is basically: z_n = z_(n-1) + z_(n-1).
 expo :: MonadFix m => Auto m a Int
@@ -34,39 +34,39 @@ expo = proc _ -> do
     id -< x
 
 -- An example from real life.  A `piLoop` is a feedback controller.  It
--- tries to get a "machine" to output a "goal", by feeding it a "control"
--- value.  The control value (like, say, an electric current) goes to the
--- machine (for example, a heating unit) to produce the "response" (for
--- example, a temperature reading).  The goal is to find the appropriate
--- control value to create the desired response.
+--   tries to get a "machine" to output a "goal", by feeding it a "control"
+--   value.  The control value (like, say, an electric current) goes to the
+--   machine (for example, a heating unit) to produce the "response" (for
+--   example, a temperature reading).  The goal is to find the appropriate
+--   control value to create the desired response.
 --
 -- In the "PI" algorithm, the control is adjusted at every step by adding
--- together a number proportional to the current error (the "p") and
--- a number proportional to the sum of all errors "so far" (the "i",
--- integral).  We define "error" as the difference between the goal
--- response and the current response.
+--   together a number proportional to the current error (the "p") and
+--   a number proportional to the sum of all errors "so far" (the "i",
+--   integral).  We define "error" as the difference between the goal
+--   response and the current response.
 --
 -- Note the use of `summerD`, instead of `summer`.  This means that the
--- "first result" will simply be the initial accumulator value, `c0`.  It
--- is this fixed first-result that allows the knot-tying and
--- fixpoint-finding magic to work.  In a recursive block, there has to be
--- at least *one* value, somewhere, that doesn't depend on anything "now"
--- to get its first output.  `summerD` is that key in this situation, as
--- its first output does not depend on anything else.
+--   "first result" will simply be the initial accumulator value, `c0`.  It
+--   is this fixed first-result that allows the knot-tying and
+--   fixpoint-finding magic to work.  In a recursive block, there has to be
+--   at least *one* value, somewhere, that doesn't depend on anything "now"
+--   to get its first output.  `summerD` is that key in this situation, as
+--   its first output does not depend on anything else.
 --
 -- Note that this "key" doesn't have to necessarily be for `currResponse`;
--- you can also move this key value somewhere else:
+--   you can also move this key value somewhere else:
 --
 -- > control      <- summer c0         -< p + i
 -- > currResponse <- system . delay c0 -< control
 --
 -- `delay c0` is an `Auto` that outputs `c0` first...then the delayed
--- stream of its inputs.  So the first value of `currResponse` doesn't
--- depend on anything else; it`s just `system` fed `c0`.
+--   stream of its inputs.  So the first value of `currResponse` doesn't
+--   depend on anything else; it`s just `system` fed `c0`.
 --
 -- You can have either `control` or `currResponse` be your key value/base
--- case, and it should work the same.  However, if you have neither, then
--- you're going to be going into a `<<loop>>`.
+--   case, and it should work the same.  However, if you have neither, then
+--   you're going to be going into a `<<loop>>`.
 piLoop :: MonadFix m
        => Double                -- ^ initial starting control
        -> Double                -- ^ proportional scaling factor

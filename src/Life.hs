@@ -5,7 +5,7 @@
 
 module Main (main) where
 
-import Control.Auto hiding     (loop)
+import Control.Auto
 import Control.Auto.Blip
 import Control.Auto.Collection
 import Control.Auto.Switch
@@ -63,15 +63,15 @@ board g0 = proc _ -> do
         --   containing the neighbors for each cell.  Each cell updates
         --   according to its neighbors, and the output is the updated list
         --   of cells.
-        -- 'neighbors' and 'cells' are grids of neighborhoods and
-        --   cells...so we use 'concat' to flatten it out and 'chunks c'
+        -- `neighbors` and `cells` are grids of neighborhoods and
+        --   cells...so we use `concat` to flatten it out and `chunks c`
         --   to re-chunk it back into a grid.
     rec cells <- chunks c ^<< dZipAuto nop cells0 <<^ concat -< neighbors
 
-            -- a list of every possible "shift" of 'cellGrid'
+            -- a list of every possible "shift" of `cellGrid`
         let shiftedGrids :: [Grid]
             shiftedGrids = map ($ cells) allShifts
-            -- going across each Grid in 'shiftedGrids', and accumulating
+            -- going across each Grid in `shiftedGrids`, and accumulating
             --   the cells in every spot.  Basically returns a Grid of
             --   Neighborhoods, where every spot is associated with
             --   a Neighborhood.
@@ -109,8 +109,8 @@ cell c0 = switchFromF cell' (cell' c0) <<^ length . filter isAlive
   where
     -- Cell Auto that emits its current state and a Blip signaling a state
     --   change.
-    -- 'became' emits a blip every time the predicate becomes true.
-    --   'tagBlips' replaces the contents with incoming Blips with the
+    -- `became` emits a blip every time the predicate becomes true.
+    --   `tagBlips` replaces the contents with incoming Blips with the
     --   given value.  (f &&& g) from Control.Arrow "forks" the stream,
     --   running `f` through one fork and `g` through the other.
     cell' :: Cell -> Auto m Int (Cell, Blip Cell)

@@ -107,12 +107,12 @@ seenBot = proc (InMessage nick msg _ time) -> do
               mzero
 
 -- karmaBot: Maintains a map of nicks and associated "karma" --- users can
---   increase a nick's karma by saying '@addKarma [nick]`...can subtract by
---   saying '@subKarma [nick]'...or just query the map by saying '@karma
---   [nick]'.  In all cases, the current karma is reported.
+--   increase a nick's karma by saying `@addKarma [nick]`...can subtract by
+--   saying `@subKarma [nick]`...or just query the map by saying `@karma
+--   [nick]`.  In all cases, the current karma is reported.
 karmaBot :: Monad m => ChatBot' m
 karmaBot = proc (InMessage _ msg _ _) -> do
-    -- a karmaBlip is 'Blip (Nick, Int)' that occurs whenever a @karma
+    -- a karmaBlip is `Blip (Nick, Int)` that occurs whenever a @karma
     --   command is registered.  The nick is the nick to be changed, and the
     --   Int is the change in karma.
     karmaBlip <- emitJusts comm -< msg
@@ -128,12 +128,12 @@ karmaBot = proc (InMessage _ msg _ _) -> do
                     in  ["'" ++ nick ++ "' has a karma of " ++ show karm ++ "."]
                     ) karmaBlip
 
-    -- If 'outBlip' (the message) is there, return it.  Otherwise, return
-    --   'mzero' (empty list)
+    -- If `outBlip` (the message) is there, return it.  Otherwise, return
+    --   `mzero` (empty list)
     fromBlips mzero -< outBlip
   where
-    -- detect a command from the given input string.  Output 'Maybe
-    --   (Nick, Int)' -- the nick to change the karma of, and the Int is the
+    -- detect a command from the given input string.  Output `Maybe
+    --   (Nick, Int)` -- the nick to change the karma of, and the Int is the
     --   change in karma.
     comm :: String -> Maybe (Nick, Int)
     comm msg = case words msg of
@@ -143,13 +143,13 @@ karmaBot = proc (InMessage _ msg _ _) -> do
                  _                  -> Nothing
 
 -- announceBot: Listen on all channels (including private messages) for
---   announcements of the form '@ann [message]'; when received, broadcast
+--   announcements of the form `@ann [message]`; when received, broadcast
 --   the message to all channels the bot is in.  However, rate-limit the
 --   broadcasts and only allow 3 announcements per day per user, reset
 --   every day at midnight.
 announceBot :: forall m. Monad m => ChatBot m
 announceBot = proc im@(InMessage _ _ src time) -> do
-    -- annBlip, a 'Blip (Nick, String)' (the nick sending the
+    -- annBlip, a `Blip (Nick, String)` (the nick sending the
     --   announcement, and the announcement), that is fired/emitted every
     --   time an announcement is observed anywhere.
     annBlip <- emitJusts announcing -< im
@@ -162,19 +162,19 @@ announceBot = proc im@(InMessage _ _ src time) -> do
     let annNick = fst <$> annBlip
 
     -- Maintain a map of nicks and the number of times they have made
-    --   announcements.  'resetOn counter' basically behaves like
-    --   'counter', which takes 'annNick' --- but when it gets a 'newDay'
+    --   announcements.  `resetOn counter` basically behaves like
+    --   `counter`, which takes `annNick` --- but when it gets a `newDay`
     --   Blip, resets the counter Auto.
-    -- The counter auto is in the 'where' clause, and just increments the
-    --   entry for the incoming 'annNick' by 1 every announcement.
+    -- The counter auto is in the `where` clause, and just increments the
+    --   entry for the incoming `annNick` by 1 every announcement.
     amnts   <- resetOn counter -< (annNick, newDay)
 
         -- the response.  If allowed, broadcasts the announcement to every
-        --   channel on the 'channels' list config variable.  If not
+        --   channel on the `channels` list config variable.  If not
         --   allowed (because of flooding), only outputs a "No Flooding!"
         --   message to the channel where the announcement request was
         --   received.
-        -- Wraps it all up in the 'OutMessages' container.
+        -- Wraps it all up in the `OutMessages` container.
     let outmsgs = fmap (\(nick, ann) ->
                     let amt  = M.findWithDefault 0 nick amnts
                         msgs | amt <= floodLimit = (, [ann]) <$> channels
@@ -182,13 +182,13 @@ announceBot = proc im@(InMessage _ _ src time) -> do
                     in  OutMessages (M.fromList msgs)
                     ) annBlip
 
-    -- on non-blips, output 'mempty' (an 'OutMessages' map w/ no messages)
+    -- on non-blips, output `mempty` (an `OutMessages` map w/ no messages)
     fromBlips mempty -< outmsgs
   where
     floodLimit :: Int
     floodLimit = 3
-    -- Look for commands making announcements; returns 'Maybe (Nick,
-    --   String)' --- the nick making the announcement, and the announcement.
+    -- Look for commands making announcements; returns `Maybe (Nick,
+    --   String)` --- the nick making the announcement, and the announcement.
     announcing :: InMessage -> Maybe (Nick, String)
     announcing (InMessage nick msg _ _) =
         case words msg of
@@ -230,7 +230,7 @@ launchIRC a0 = do
 -- onMessage: the Privmsg handler.  On every Privmsg, pull the Auto out of
 --   the MVar, step it to get the results, and put the modified Auto back
 --   into the MVar.  Check out the documentation for simpleirc and
---   'Control.Concurrent' for more information.
+--   `Control.Concurrent` for more information.
 onMessage :: MVar (ChatBot IO) -> EventFunc
 onMessage amvr server msg = do
     OutMessages resps <- modifyMVar amvr $ \a ->

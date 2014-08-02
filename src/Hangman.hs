@@ -75,7 +75,7 @@ main = do
     wordlist <- lines . map toLower <$> readFile wordlistFP
     g        <- getStdGen
 
-    -- Our game Auto; 'hangman' with a wordlist and a starting seed
+    -- Our game Auto; `hangman` with a wordlist and a starting seed
     let gameAuto = hangman wordlist g :: Auto Identity String (Maybe String)
 
     -- Attempt to load the savefile
@@ -94,17 +94,17 @@ main = do
         return gameAuto
 
     -- run through one iteration to output the current puzzle
-    --   'initGame' is the game auto after going through one step
+    --   `initGame` is the game auto after going through one step
     let Output str initGame = runIdentity (stepAuto loadedGame "@display")
 
     -- print out out the current puzzle
     mapM_ putStrLn str
 
     -- here we go, start running the loop with the initialized game auto
-    --   'finalGame' is the game after the loop has ended.
+    --   `finalGame` is the game after the loop has ended.
     finalGame  <- interactId initGame
 
-    -- save the game; serialize and write 'finalGame'.
+    -- save the game; serialize and write `finalGame`.
     putStrLn $ "Saving game to " <> savegameFP <> "..."
     writeAuto savegameFP finalGame
 
@@ -140,7 +140,7 @@ hangman wordlist g = proc inp -> do
         newstr <- stdRands (pick wordlist) g -< ()
 
         -- Puzzle, with the command and a fresh string if needed.
-        --   'switchFromF' basically creates a new "game" with a new word
+        --   `switchFromF` basically creates a new "game" with a new word
         --   every time the internal wire emits a blip containing a new
         --   word.
         puzz   <- switchFromF game initialize -< (hcomm, newstr)
@@ -165,8 +165,8 @@ hangman wordlist g = proc inp -> do
                                            <> "\n"
                                            <> display p1
 
--- initial game...only here to "start" the real 'game' auto.  All it does
---   is emit a 'blip' with a word, which causes 'switchFromF' to create
+-- initial game...only here to "start" the real `game` auto.  All it does
+--   is emit a `blip` with a word, which causes `switchFromF` to create
 --   a new game with that word.
 initialize :: Monad m
            => Auto m (HMCommand, String) (PuzzleOut, Blip String)
@@ -175,8 +175,8 @@ initialize = proc (_, newstr) -> do
     id   -< (Puzz (blankPuzzle newstr) True, new)
 
 -- A single game with a single word.  Takes in commands and outputs
---   'PuzzleOut's...or a blip containing the next mystery word.  'switchF'
---   takes this blip and creates a fresh 'game' out of it, starting the
+--   `PuzzleOut`s...or a blip containing the next mystery word.  `switchF`
+--   takes this blip and creates a fresh `game` out of it, starting the
 --   cycle all over.
 game :: Monad m
      => String    -- ^ The mystery word(s)
@@ -239,7 +239,7 @@ game str = proc (comm, newstr) -> do
 
   where
     -- add a unique element to a list.  but don't check for uniqueness if
-    -- '*' (a bad solve)
+    --   '*' (a bad solve)
     add ws w = case w of
                  Just '*'                -> '*':ws
                  Just c | c `notElem` ws -> c  :ws
