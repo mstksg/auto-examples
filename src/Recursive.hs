@@ -3,7 +3,7 @@
 module Main (main) where
 
 import Control.Auto
-import Control.Auto.Process.Numerical
+import Control.Auto.Process
 import Control.Auto.Time
 import Control.Auto.Run
 import Control.Monad.Fix
@@ -46,18 +46,18 @@ expo = proc _ -> do
 --   integral).  We define "error" as the difference between the goal
 --   response and the current response.
 --
--- Note the use of `summerD`, instead of `summer`.  This means that the
+-- Note the use of `sumFromD`, instead of `sumFrom`.  This means that the
 --   "first result" will simply be the initial accumulator value, `c0`.  It
 --   is this fixed first-result that allows the knot-tying and
 --   fixpoint-finding magic to work.  In a recursive block, there has to be
 --   at least *one* value, somewhere, that doesn't depend on anything "now"
---   to get its first output.  `summerD` is that key in this situation, as
+--   to get its first output.  `sumFromD` is that key in this situation, as
 --   its first output does not depend on anything else.
 --
 -- Note that this "key" doesn't have to necessarily be for `currResponse`;
 --   you can also move this key value somewhere else:
 --
--- > control      <- summer c0         -< p + i
+-- > control      <- sumFrom c0        -< p + i
 -- > currResponse <- system . delay c0 -< control
 --
 -- `delay c0` is an `Auto` that outputs `c0` first...then the delayed
@@ -77,7 +77,7 @@ piLoop c0 kp ki = proc goal -> do
     rec let err = goal - currResponse
 
         -- the sum of all the errors so far
-        errIntegral  <- summer 0   -< err
+        errIntegral  <- sumFrom 0   -< err
 
             -- the p term is proportional to the error
         let p = kp * err
@@ -85,10 +85,10 @@ piLoop c0 kp ki = proc goal -> do
             i = ki * errIntegral
 
         -- the new control value, the accumulated sum of the p and i terms
-        control      <- summerD c0 -< p + i
+        control      <- sumFromD c0 -< p + i
 
         -- currResponse, the response of the control applied to the system
-        currResponse <- system     -< control
+        currResponse <- system      -< control
 
     id -< currResponse
   where

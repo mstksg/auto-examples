@@ -174,21 +174,21 @@ The main algorithm is this:
 ~~~haskell
 rec let err = goal - currResponse
 
-    errIntegral  <- summer 0  -< err
+    errIntegral  <- sumFrom 0  -< err
 
     let p = kp * err
         i = ki * errIntegral
 
-    control      <- summer c0 -< p + i
-    currResponse <- system    -< control
+    control      <- sumFrom c0 -< p + i
+    currResponse <- system     -< control
 ~~~
 
 This looks a lot like how you would describe the algorithm from a high level.
 "The error is the difference between the goal and the current response, and
 the integral of the error is the cumulative sum of the errors.  The *p*
-contribution is kp times the current error; the *i* contribution is ki times
-the error integral.  The new control value is the cumulative sum of the *p*
-and *i* contributions.  The response is the what happens when you feed the
+contribution is `kp` times the current error; the *i* contribution is `ki`
+times the error integral.  The new control value is the cumulative sum of the
+*p* and *i* contributions.  The response is what happens when you feed the
 control value to the system."
 
 This actually doesn't work initially...because...how would you get it started?
@@ -201,10 +201,10 @@ the knot-tying to work.
 We can introduce that in two ways:
 
 ~~~haskell
-control <- summerD c0 -< p + i
+control      <- sumFromD c0       -< p + i
 ~~~
 
-`summerD` is like `summer`, except it outputs `c0` on its first step, before
+`sumFromD` is like `sumFrom`, except it outputs `c0` on its first step, before
 adding anything.  Now, `control` is a value that doesn't "need anything" to
 get its first/immediate value, so everything works!
 
