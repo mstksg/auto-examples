@@ -9,13 +9,18 @@ import Control.Auto.Run
 import Control.Monad.Fix
 import Prelude hiding ((.), id)
 
--- The Fibonacci sequence, implemented using 'lastVal'.  In this, `z` is
+-- The Fibonacci sequence, implemented using `delayN`.  In this, `z` is
 --   `x + y`, where `x` is `z` delayed by two steps, and `y` is `z` delayed
 --   by one step.
 --
 -- In mathy terms, this means: z_n = z_(n-2) + z_(n-1).
 --
 -- We output `x`, which is initially `1`.
+--
+-- > delayN :: Int -> a -> Auto m a a
+--
+-- `delayN n x` outputs `x` for `n` of the first steps, then outputs
+-- whatever it receives, lagging behind `n` steps.
 fib :: MonadFix m => Auto m a Int
 fib = proc _ -> do
     rec x <- (delayN 2) 1 -< z      -- z_(n-2)
