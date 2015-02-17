@@ -131,7 +131,7 @@ parseInp = p . words
     p ("M":n:xs) = readMaybe n <&> \n' -> IETask n' (TEModify (unwords xs))
     p _          = Nothing
     (<&>) :: Functor f => f a -> (a -> b) -> f b
-    (<&>) = flip fmap
+    x <&> f = fmap f x
 
 
 
