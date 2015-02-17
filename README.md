@@ -3,7 +3,8 @@ auto-examples
 
 Various examples to demonstrate features of the in-development [auto][]
 library, and also as guides for writing your own applications.  API subject to
-much change.
+much change.  The online development documentation is kept at
+<https://mstksg.github.io/auto>.
 
 [auto]: https://github.com/mstksg/auto
 
