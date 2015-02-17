@@ -78,6 +78,7 @@ logger = proc (input, time) -> do
                              <> "\n"
 
         -- accumulate the log
+        -- TODO: switch to using accumulating events
         log   <- mkAccum (++) "" -< toLog
 
         -- do not clear

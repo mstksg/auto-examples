@@ -102,7 +102,7 @@ main = do
 
     -- here we go, start running the loop with the initialized game auto
     --   `finalGame` is the game after the loop has ended.
-    finalGame  <- interactId initGame
+    finalGame  <- interact initGame
 
     -- save the game; serialize and write `finalGame`.
     putStrLn $ "Saving game to " <> savegameFP <> "..."
