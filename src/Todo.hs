@@ -2,6 +2,18 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE TupleSections #-}
 
+-- | "Todo"
+--
+-- A simple todo app.  Written so that the logic can be plug straight into
+-- a GUI...where the GUI would send GUI events as blips into the main
+-- `taskInp` Auto, and then re-display the output `Map`.  Right now is
+-- equipped with testing functions for command line usage, so there is
+-- rudimentary command line usage with the commands shown in
+-- `parseInp`...but I expect to port this to various GUI's soon to see how
+-- simply it can be done.
+--
+-- Supports adding, modifying, completing/uncompleting, deleting.
+
 module Main (main) where
 
 import Control.Auto
