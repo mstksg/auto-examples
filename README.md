@@ -220,6 +220,19 @@ fixes allow for the whole thing to work.
 So yeah, this example is intended to be a nice reference sheet when working
 with recursive bindings.
 
+### [todo][]
+
+[todo]: https://github.com/mstksg/auto-examples/blob/master/src/Todo.hs
+
+A basic todo list implementation, with the logic written in a way that is
+meant for usage with a GUI.  Currently has a simple command line interface to
+simulate a GUI input/output, but I'm working on hooking it up to various GUI
+backends soon so we can have a real GUI demonstration of `auto`.
+
+Showcasing a GUI-based logic: streaming everything in through a central `Blip`
+stream, splitting it up into streams based on what `Auto`s want what, using
+`gather`, and spitting it all back out at the end.
+
 ### [life][]
 
 [life]: https://github.com/mstksg/auto-examples/blob/master/src/Life.hs
