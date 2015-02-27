@@ -16,24 +16,32 @@
 
 module Main (main) where
 
+import Control.Applicative
 import Control.Auto
 import Control.Auto.Blip
 import Control.Auto.Collection
-import Control.Auto.Core       (autoConstr)
 import Control.Auto.Interval
 import Control.Auto.Process
 import Control.Auto.Run
 import Control.Auto.Time
+import Control.Concurrent
 import Control.Monad
 import Control.Monad.Fix
-import Data.Map                (Map)
+import Data.Map                      (Map)
 import Data.Maybe
 import Data.Monoid
 import Data.Serialize
 import GHC.Generics
-import Prelude hiding          ((.), id)
+import GHCJS.DOM
+import GHCJS.DOM.CSSStyleDeclaration
+import GHCJS.DOM.Document
+import GHCJS.DOM.Element
+import GHCJS.DOM.HTMLElement
+import GHCJS.DOM.Node
+import GHCJS.DOM.Types
+import Prelude hiding                ((.), id)
 import Text.Read
-import qualified Data.Map      as M
+import qualified Data.Map            as M
 
 type TaskID = Int
 
@@ -70,8 +78,7 @@ taskInp = proc inpEvtB -> do
         modTaskB <- mapMaybeB validTE                 -< (ids,) <$> inpEvtB
 
         -- re-join them back together with `mergeL`
-        let tmInpB :: Blip (TaskID, TaskCmd)
-            tmInpB = newTaskB `mergeL` modTaskB
+        let tmInpB = newTaskB `mergeL` modTaskB
 
         -- a Map of Task Id's and Tasks, running `taskMap` per emitted
         -- input
@@ -150,6 +157,30 @@ formatTodo = unlines . map format . M.toList
                                          ]
 
 main :: IO ()
-main = void . interactAuto $ fmap (Just . formatTodo) taskInp
-                           . emitJusts parseInp
--- main = putStrLn . autoConstr $ (taskInp :: Auto' (Blip InpEvent) (Map TaskID Task))
+main =
+  runWebGUI $ \ webView -> do
+    Just doc <- webViewGetDomDocument webView -- webView.document
+    Just body <- documentGetBody doc     -- doc.body
+
+    -- If we are in the browser let's shrink the terminal window to make room
+    mbTerminal    <- fmap castToHTMLDivElement   <$> documentGetElementById doc "terminal"
+    case mbTerminal of
+      Just terminal -> do
+        Just style <- elementGetStyle terminal
+        cssStyleDeclarationSetProperty style "height" "100" ""
+      _             -> return ()
+
+    Just div <- fmap castToHTMLDivElement <$> documentCreateElement doc "div"
+    elementSetAttribute div "style" "position:relative;left:0px;top:0px;background-color:#e0d0ff;width:700px;height:500px"
+    elementSetAttribute div "id" "todo"
+    nodeAppendChild body (Just div)
+
+
+    -- unlisten <- engine webView "freecell" =<< mkFreecell
+    -- unlisten <- undefined
+
+    -- -- Prevent finalizers running too soon
+    -- forkIO $ forever (threadDelay 1000000000) >> unlisten
+
+    return ()
+

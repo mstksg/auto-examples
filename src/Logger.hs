@@ -9,7 +9,7 @@ import Control.Auto.Switch
 import Control.Monad hiding      (forM_)
 import Data.Foldable             (forM_)
 import Data.Time
-import Prelude hiding            (interact, id, (.), log)
+import Prelude hiding            (id, (.), log)
 import System.Locale
 
 loggingFP :: FilePath
@@ -50,7 +50,7 @@ logger :: Monad m
 --               |        |         |             +-- tell 'switchF' in 'loggerSwitch' to switch to a new 'logger'
 --               |        |         +-- Command line output.  Nothing means quit.
 --               |        +-- Time of the command
---               +-- Command line input from 'interact'.
+--               +-- Command line input
 logger = proc (input, time) -> do
     let inputwords = words input
 
@@ -79,7 +79,7 @@ logger = proc (input, time) -> do
 
         -- accumulate the log
         -- TODO: switch to using accumulating events
-        log   <- mkAccum (++) "" -< toLog
+        log   <- accum (++) "" -< toLog
 
         -- do not clear
         clear <- never -< ()

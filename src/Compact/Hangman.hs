@@ -16,7 +16,7 @@ import Control.Monad hiding (mapM_)
 import Data.Char
 import Data.List
 import Data.Maybe
-import Prelude hiding              ((.), id, interact, mapM_)
+import Prelude hiding              ((.), id, mapM_)
 import System.Random
 
 {-# ANN Puzzle "HLint: ignore Use String" #-}
@@ -145,8 +145,8 @@ game str = proc (comm, newstr) -> do
             Solve s | s == str     -> (Nothing, Nothing , True )
                     | otherwise    -> (Nothing, Just '*', False)
             _                      -> (Nothing, Nothing , False)
-    rights <- mkAccum (++) [' ']         -< maybeToList corr
-    wrongs <- reverse <$> mkAccum add [] -< incorr
+    rights <- accum (++) [' ']         -< maybeToList corr
+    wrongs <- reverse <$> accum add [] -< incorr
     let solved = solve || all (`elem` rights) str
         failed = length wrongs > guesses
         status | solved    = Success str

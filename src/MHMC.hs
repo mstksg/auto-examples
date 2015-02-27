@@ -44,7 +44,7 @@ mhmc x0 dx g = proc _ -> do
         x <- delay_ x0 -< if takeJump then x'
                                       else x
 
-    jumps <- mkAccum_ (+) 0 -< if takeJump then 1 else 0
+    jumps <- accum_ (+) 0 -< if takeJump then 1 else 0
 
     id -< (x, jumps)
   where

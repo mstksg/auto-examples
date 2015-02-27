@@ -89,11 +89,11 @@ perRoom cb' = proc im -> do
 --   time.
 seenBot :: Monad m => ChatBot' m
 seenBot = proc (InMessage nick msg _ time) -> do
-    -- mkAccum: add every '(nick, time)' pair into the map
-    --   mkAccum basically holds onto a value (starting with M.empty) and
+    -- accum: add every '(nick, time)' pair into the map
+    --   accum basically holds onto a value (starting with M.empty) and
     --   with every input, applies the merging function to the input and
     --   the value, like a fold.
-    seens <- mkAccum (\m (n, t) -> M.insert n t m) M.empty -< (nick, time)
+    seens <- accum (\m (n, t) -> M.insert n t m) M.empty -< (nick, time)
 
         -- output
     id -< case words msg of
@@ -118,7 +118,7 @@ karmaBot = proc (InMessage _ msg _ _) -> do
     karmaBlip <- emitJusts comm -< msg
 
     -- maintain the nick-karma map, by "scanning" over every karmaBlip;
-    -- scanB is like mkAccum (earlier), but only folds over incoming blips.
+    -- scanB is like accum (earlier), but only folds over incoming blips.
     karmas <- scanB (\m (n, c) -> M.insertWith (+) n c m) M.empty -< karmaBlip
 
         -- output event -- tag a karmaBlip with a report to the chatroom,

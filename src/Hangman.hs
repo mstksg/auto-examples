@@ -16,7 +16,7 @@ import Control.Monad hiding (mapM_)
 import Data.Char
 import Data.List
 import Data.Maybe
-import Prelude hiding              ((.), id, interact, mapM_)
+import Prelude hiding              ((.), id, mapM_)
 import System.Random
 
 {-# ANN Puzzle "HLint: ignore Use String" #-}
@@ -102,7 +102,7 @@ main = do
 
     -- here we go, start running the loop with the initialized game auto
     --   `finalGame` is the game after the loop has ended.
-    finalGame  <- interact initGame
+    finalGame  <- interactAuto initGame
 
     -- save the game; serialize and write `finalGame`.
     putStrLn $ "Saving game to " <> savegameFP <> "..."
@@ -196,8 +196,8 @@ game str = proc (comm, newstr) -> do
             _                      -> (Nothing, Nothing , False)
 
     -- collect all correct and wrong guesses
-    rights <- mkAccum (++) [' ']         -< maybeToList corr
-    wrongs <- reverse <$> mkAccum add [] -< incorr
+    rights <- accum (++) [' ']         -< maybeToList corr
+    wrongs <- reverse <$> accum add [] -< incorr
 
         -- is it solved?
     let solved = solve || all (`elem` rights) str

@@ -235,7 +235,7 @@ board' b0 p0 = proc i -> do
 
         -- currP: the current player.  Will be "swapped" if the last move
         --   was good, and kept the same if it wasn't.
-        currP   <- mkAccum swapP p0               -< wasGood
+        currP   <- accum swapP p0               -< wasGood
 
         -- brd: the Board.  uses the 'gather' combinator, which is like the
         --   'mux' combinator, but instead of outputting just the "currently
@@ -308,7 +308,7 @@ board' b0 p0 = proc i -> do
               | otherwise = p
 
 -- the actual 'column' Auto, of which every 'board' is composed out of.
---   This is a basic usage of 'mkAccum', which is sort of like an Auto
+--   This is a basic usage of 'accum', which is sort of like an Auto
 --   foldl.  Give the initial accumulator, and a merging function, apply
 --   the function to every incoming item and the accumulator to get a new
 --   accumulator and output value.
@@ -317,7 +317,7 @@ board' b0 p0 = proc i -> do
 --   column), and then 'take' only the amount that we need, keeping the
 --   height of the column at most 'boardHeight'.
 column :: Monad m => Column -> Auto m Piece Column
-column = mkAccum (\ps p -> take boardHeight (ps ++ [p]))
+column = accum (\ps p -> take boardHeight (ps ++ [p]))
 
 
 -- Utilities

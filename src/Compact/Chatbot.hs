@@ -66,7 +66,7 @@ perRoom cb' = proc im -> do
 
 seenBot :: Monad m => ChatBot' m
 seenBot = proc (InMessage nick msg _ time) -> do
-    seens <- mkAccum (\m (n, t) -> M.insert n t m) M.empty -< (nick, time)
+    seens <- accum (\m (n, t) -> M.insert n t m) M.empty -< (nick, time)
     id -< case words msg of
             "@seen":req:_ ->
               [ case M.lookup req seens of

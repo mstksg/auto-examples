@@ -135,12 +135,12 @@ combine with other bots --- inspired by the principles of Gabriel Gonzalez's
 [fdp]: http://www.haskellforall.com/2012/09/the-functor-design-pattern.html
 
 The individual bots themselves all demonstrate usage of common Auto
-combinators, like `mkAccum` (which modifies the state with input continually,
+combinators, like `accum` (which modifies the state with input continually,
 with the given function) --- also much usage of the `Blip` mechanism and
 semantics --- much of the bots respond to "blips" --- like detected user
 commands, and the day changing.
 
-Working with streams of blips, "scanning over them" (like `mkAccum` but with
+Working with streams of blips, "scanning over them" (like `accum` but with
 blips), and consolidating blip streams back into normal streams are all
 demonstrated.
 
