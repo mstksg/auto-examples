@@ -107,7 +107,7 @@ main = do
 
     -- the main loop
     loop a i0 = do
-      let Output bout a' = runIdentity (stepAuto a i0)
+      let (bout, a') = stepAuto' a i0
       clearScreen
       putStrLn (showOut bout)
       when (isNothing (_boWinner bout)) $ do
@@ -488,9 +488,9 @@ cpuAlphaBeta lim g = proc (_, bout) -> do
                         guard       $ α'' > α
                         return (Just m', α'')
           where
-            Output bout' a' = runIdentity (stepAuto a m')
-            (_, α')         = mini ms maxP (l - 1) α β0 a'
-            α''             = maybe α' (score maxP) $ _boWinner bout'
+            (bout', a') = stepAuto' a m'
+            (_, α')     = mini ms maxP (l - 1) α β0 a'
+            α''         = maybe α' (score maxP) $ _boWinner bout'
     mini :: [Int] -> Player -> Int -> Bounder Double -> Bounder Double
          -> Auto Identity Int BoardOut -> (Maybe Int, Bounder Double)
     mini ms maxP l α0 β0 a | l <= 0    = (Nothing, BIn 0)
@@ -502,9 +502,9 @@ cpuAlphaBeta lim g = proc (_, bout) -> do
                         guard       $ β'' < β
                         return (Just m', β'')
           where
-            Output bout' a' = runIdentity (stepAuto a m')
-            (_, β')         = maxi ms maxP (l - 1) α0 β a'
-            β''             = maybe β' (score maxP) $ _boWinner bout'
+            (bout', a') = stepAuto' a m'
+            (_, β')     = maxi ms maxP (l - 1) α0 β a'
+            β''         = maybe β' (score maxP) $ _boWinner bout'
     score cP (Just p) | p == cP = BMax
                       | otherwise  = BMin
     score _  Nothing  = BIn (-100)

@@ -103,8 +103,8 @@ main = do
 
 f :: Monad m => Auto m a b -> a -> m b
 f a x = do
-    Output _ burned <- stepN burn a x
-    Output xs _     <- stepAuto (accelerate steps burned) x
+    (_, burned) <- stepN burn a x
+    (xs, _)     <- stepAuto (accelerate steps burned) x
     return (last xs)
 {-# INLINE f #-}
 
@@ -119,10 +119,10 @@ f a x = do
 --     return a'
 -- {-# INLINE execAuto #-}
 
-stepN :: Monad m => Int -> Auto m a b -> a -> m (Output m a b)
+stepN :: Monad m => Int -> Auto m a b -> a -> m (b, Auto m a b)
 stepN 1 a x = stepAuto a x
 stepN n a x = do
-    Output _ a' <- stepAuto a x
+    (_, a') <- stepAuto a x
     stepN (n - 1) a' x
 {-# INLINE stepN #-}
 

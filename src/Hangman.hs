@@ -95,7 +95,7 @@ main = do
 
     -- run through one iteration to output the current puzzle
     --   `initGame` is the game auto after going through one step
-    let Output str initGame = runIdentity (stepAuto loadedGame "@display")
+    let (str, initGame) = stepAuto' loadedGame "@display"
 
     -- print out out the current puzzle
     mapM_ putStrLn str

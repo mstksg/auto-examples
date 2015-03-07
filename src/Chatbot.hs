@@ -239,7 +239,7 @@ onMessage amvr server msg = do
           t <- getCurrentTime
           let inmsg = InMessage (C8.unpack nick) (C8.unpack (mMsg msg))
                                 (C8.unpack orig) t
-          Output out a' <- stepAuto a inmsg
+          (out, a') <- stepAuto a inmsg
           return (a', out   )
         _   ->
           return (a , mempty)

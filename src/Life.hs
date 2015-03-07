@@ -46,7 +46,7 @@ main :: IO ()
 main = loop (board startingGrid)
   where
     loop a = do
-      Output g a' <- stepAuto a ()
+      (g, a') <- stepAuto a ()
       clearScreen
       putStrLn (showGrid g)
       putStrLn "Press Enter to step simulation."

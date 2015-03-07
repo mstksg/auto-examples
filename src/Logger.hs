@@ -28,7 +28,7 @@ main = do
       inp  <- getLine
       time <- getCurrentTime
       -- step the Auto with the input and the current time
-      Output out a' <- stepAuto a (inp, time)
+      (out, a') <- stepAuto a (inp, time)
       forM_ out $ \str -> do
         putStrLn str
         loop a'

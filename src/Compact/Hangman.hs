@@ -83,7 +83,7 @@ main = do
       _                         -> do
         putStrLn "Save file corrupted; creating new game."
         return gameAuto
-    let Output str initGame = runIdentity (stepAuto loadedGame "@display")
+    let (str, initGame) = stepAuto' loadedGame "@display"
     mapM_ putStrLn str
     finalGame  <- interactId initGame
     putStrLn $ "Saving game to " <> savegameFP <> "..."
