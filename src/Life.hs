@@ -114,8 +114,8 @@ cell c0 = switchFromF cell' (cell' c0) <<^ length . filter isAlive
     --   given value.  (f &&& g) from Control.Arrow "forks" the stream,
     --   running `f` through one fork and `g` through the other.
     cell' :: Cell -> Auto m Int (Cell, Blip Cell)
-    cell' Alive = (fromBlips Alive &&& id) . tagBlips Dead  . became death  -- Oppenheimer
-    cell' Dead  = (fromBlips Dead  &&& id) . tagBlips Alive . became spawn
+    cell' Alive = (fromBlipsWith Alive &&& id) . tagBlips Dead  . became death  -- Oppenheimer
+    cell' Dead  = (fromBlipsWith Dead  &&& id) . tagBlips Alive . became spawn
 
     -- predicates for swapping
     death, spawn :: Int -> Bool

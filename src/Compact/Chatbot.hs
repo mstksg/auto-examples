@@ -82,7 +82,7 @@ karmaBot = proc (InMessage _ msg _ _) -> do
     let outBlip = flip fmap karmaBlip $ \(nick, _) ->
                     let karm = M.findWithDefault 0 nick karmas
                     in  ["'" ++ nick ++ "' has a karma of " ++ show karm ++ "."]
-    fromBlips mzero -< outBlip
+    fromBlipsWith mzero -< outBlip
   where
     comm :: String -> Maybe (Nick, Int)
     comm msg = case words msg of
@@ -103,7 +103,7 @@ announceBot = proc im@(InMessage _ _ src time) -> do
                              | otherwise         = [(src, ["No Flooding!"])]
                     in  OutMessages (M.fromList msgs)
                     ) annBlip
-    fromBlips mempty -< outmsgs
+    fromBlipsWith mempty -< outmsgs
   where
     floodLimit :: Int
     floodLimit = 3

@@ -28,25 +28,27 @@ import qualified Data.Map.Strict       as M
 type ChatBot m = Auto m InMessage OutMessages
 -- A simplified chat bot which only outputs messages to the channel it
 --   received the incoming message from
-type ChatBot' m = Auto m InMessage [String]
+type ChatBot' m = Auto m InMessage (Blip [Message])
 
 type Nick    = String
 type Channel = String
+type Message = String
 
 data InMessage = InMessage { _inMessageNick   :: Nick
-                           , _inMessageBody   :: String
+                           , _inMessageBody   :: Message
                            , _inMessageSource :: Channel
                            , _inMessageTime   :: UTCTime
                            } deriving Show
 
 -- Output map; the keys are channels and the values are messages to send to
 --   each channel.
-newtype OutMessages = OutMessages { _outMessageMap :: Map Channel [String]
-                                  }
+data OutMessages = OutMessages (Map Channel [Message])
 
 instance Monoid OutMessages where
-    mempty = OutMessages M.empty
-    mappend (OutMessages a) (OutMessages b) = OutMessages (M.unionWith (<>) a b)
+    mempty  = OutMessages M.empty
+    mappend (OutMessages m1) (OutMessages m2)
+            = OutMessages (M.unionWith (++) m1 m2)
+
 
 -- config
 botName :: Nick
@@ -64,7 +66,7 @@ main = launchIRC chatBot
 
 -- The bot!  Basically a monoid sum of smaller bots.  Note that each
 --   component bot is selectively serialized.
-chatBot :: MonadIO m => ChatBot m
+chatBot :: ChatBot IO
 chatBot = mconcat [ s "seen"  $ perRoom seenBot     -- seenBot, self-serializing
                   ,             perRoom karmaBot
                   , s "ann"             announceBot
@@ -79,68 +81,71 @@ chatBot = mconcat [ s "seen"  $ perRoom seenBot     -- seenBot, self-serializing
 --   input/output.
 perRoom :: Monad m => ChatBot' m -> ChatBot m
 perRoom cb' = proc im -> do
-    outs <- cb' -< im
+    outs <- fromBlipsWith [] . cb' -< im
     id -< OutMessages $ M.singleton (_inMessageSource im) outs
 
 -- | The Modules/bots
 
 -- seenBot: Maintains a map of nicks and their last received message.  On
---   the command '@seen [nick]', looks up that nick and reports the last seen
---   time.
+--   the command '@seen [nick]', looks up that nick and reports the last
+--   seen time.
 seenBot :: Monad m => ChatBot' m
 seenBot = proc (InMessage nick msg _ time) -> do
-    -- accum: add every '(nick, time)' pair into the map
-    --   accum basically holds onto a value (starting with M.empty) and
-    --   with every input, applies the merging function to the input and
-    --   the value, like a fold.
-    seens <- accum (\m (n, t) -> M.insert n t m) M.empty -< (nick, time)
+    -- seens :: Map Nick UTCTime
+    -- Map containing last time each nick has spoken.  Uses `accum` and the
+    --   helper function `addToMap` to update the Map on every message.
+    seens <- accum addToMap M.empty -< (nick, time)
 
-        -- output
-    id -< case words msg of
-            -- if a command, look up the request and output a report.
-            "@seen":req:_ ->
-              [ case M.lookup req seens of
-                  Just t  -> "'" ++ req ++ "' last seen at " ++ show t ++ "."
-                  Nothing -> "No record of '" ++ req ++ "'." ]
-                -- otherwise, nothing.
-            _             ->
-              mzero
+    -- query :: Blip Nick
+    -- blip stream emits whenever someone queries for a last time seen;
+    -- emits with the nick queried for
+    query <- emitJusts getRequest -< words msg
 
--- karmaBot: Maintains a map of nicks and associated "karma" --- users can
---   increase a nick's karma by saying `@addKarma [nick]`...can subtract by
---   saying `@subKarma [nick]`...or just query the map by saying `@karma
---   [nick]`.  In all cases, the current karma is reported.
+        -- a function to get a response from a nick query
+    let respond :: Nick -> [Message]
+        respond qry = case M.lookup qry seens of
+                        Just t  -> [qry ++ " last seen at " ++ show t ++ "."]
+                        Nothing -> ["No record of " ++ qry ++ "."]
+
+    -- output is, whenever the `query` stream emits, map `respond` to it.
+    id -< respond <$> query
+  where
+    addToMap :: Map Nick UTCTime -> (Nick, UTCTime) -> Map Nick UTCTime
+    addToMap mp (nick, time) = M.insert nick time mp
+    getRequest ("@seen":request:_) = Just request
+    getRequest _                   = Nothing
+
+-- karmaBot: Maintains a map of nicks and associated "karma", imaginary
+--   internet points. --- users can increase a nick's karma by saying
+--   `@addKarma [nick]`...can subtract by saying `@subKarma [nick]`...or
+--   just query the map by saying `@karma [nick]`.  In all cases, the
+--   current karma is reported.
 karmaBot :: Monad m => ChatBot' m
 karmaBot = proc (InMessage _ msg _ _) -> do
-    -- a karmaBlip is `Blip (Nick, Int)` that occurs whenever a @karma
-    --   command is registered.  The nick is the nick to be changed, and the
-    --   Int is the change in karma.
-    karmaBlip <- emitJusts comm -< msg
+    -- karmaBlip :: Blip (Nick, Int)
+    -- blip stream emits when someone modifies karma, with nick and increment
+    karmaBlip <- emitJusts getComm -< msg
 
-    -- maintain the nick-karma map, by "scanning" over every karmaBlip;
-    -- scanB is like accum (earlier), but only folds over incoming blips.
-    karmas <- scanB (\m (n, c) -> M.insertWith (+) n c m) M.empty -< karmaBlip
+    -- karmas :: Map Nick Int
+    -- keeps track of the total karma for each user by updating with karmaBlip
+    karmas    <- scanB updateMap M.empty -< karmaBlip
 
-        -- output event -- tag a karmaBlip with a report to the chatroom,
-        --   using the Functor instance.
-    let outBlip = fmap (\(nick, _) ->
-                    let karm = M.findWithDefault 0 nick karmas
-                    in  ["'" ++ nick ++ "' has a karma of " ++ show karm ++ "."]
-                    ) karmaBlip
+    -- function to look up a nick, if one is asked for
+    let lookupKarma :: Nick -> [Message]
+        lookupKarma nick = let karm = M.findWithDefault 0 nick karmas
+                          in  [nick ++ " has a karma of " ++ show karm ++ "."]
 
-    -- If `outBlip` (the message) is there, return it.  Otherwise, return
-    --   `mzero` (empty list)
-    fromBlips mzero -< outBlip
+    -- output is, whenever `karmaBlip` stream emits, look up the result
+    id -< lookupKarma . fst <$> karmaBlip
   where
-    -- detect a command from the given input string.  Output `Maybe
-    --   (Nick, Int)` -- the nick to change the karma of, and the Int is the
-    --   change in karma.
-    comm :: String -> Maybe (Nick, Int)
-    comm msg = case words msg of
-                 "@addKarma":nick:_ -> Just (nick, 1 )
-                 "@subKarma":nick:_ -> Just (nick, -1)
-                 "@karma":nick:_    -> Just (nick, 0)
-                 _                  -> Nothing
+    getComm :: String -> Maybe (Nick, Int)
+    getComm msg = case words msg of
+                    "@addKarma":nick:_ -> Just (nick, 1 )
+                    "@subKarma":nick:_ -> Just (nick, -1)
+                    "@karma":nick:_    -> Just (nick, 0)
+                    _                  -> Nothing
+    updateMap :: Map Nick Int -> (Nick, Int) -> Map Nick Int
+    updateMap mp (nick, change) = M.insertWith (+) nick change mp
 
 -- announceBot: Listen on all channels (including private messages) for
 --   announcements of the form `@ann [message]`; when received, broadcast
@@ -148,56 +153,53 @@ karmaBot = proc (InMessage _ msg _ _) -> do
 --   broadcasts and only allow 3 announcements per day per user, reset
 --   every day at midnight.
 announceBot :: forall m. Monad m => ChatBot m
-announceBot = proc im@(InMessage _ _ src time) -> do
-    -- annBlip, a `Blip (Nick, String)` (the nick sending the
-    --   announcement, and the announcement), that is fired/emitted every
-    --   time an announcement is observed anywhere.
-    annBlip <- emitJusts announcing -< im
+announceBot = proc (InMessage nick msg src time) -> do
+    -- annBlip :: Blip [Message]
+    -- blip stream emits when someone wants an echo, with the message
+    annBlip <- emitJusts getAnnounce -< (nick, msg)
 
-    -- newDay is a Blip that occurs every time a new day is observed in the
-    --   InMessage's time field.
-    newDay  <- onChange             -< utctDay time
+    -- newDayBlip :: Blip UTCTime
+    -- blip stream emits whenever the day changes
+    newDayBlip <- onChange           -< utctDay time
 
-        -- A Blip of the nick sending the announcement.
-    let annNick = fst <$> annBlip
+    -- annCounts :: Map Nick Int
+    -- `countEchos` counts the number of times each user asks for an echo, and
+    -- `resetOn` makes it "reset" itself whenever `newDayBlip` emits.
+    annCounts <- resetOn countAnns -< (nick <$ annBlip, newDayBlip)
 
-    -- Maintain a map of nicks and the number of times they have made
-    --   announcements.  `resetOn counter` basically behaves like
-    --   `counter`, which takes `annNick` --- but when it gets a `newDay`
-    --   Blip, resets the counter Auto.
-    -- The counter auto is in the `where` clause, and just increments the
-    --   entry for the incoming `annNick` by 1 every announcement.
-    amnts   <- resetOn counter -< (annNick, newDay)
+        -- has this user flooded today...?
+    let hasFlooded = M.lookup nick annCounts > Just floodLimit
+        -- toRooms :: Blip [Message]
+        -- blip stream emits whenever someone asks for an echo, limiting flood
+        outMsg  | hasFlooded = ["No flooding!"] <$ annBlip
+                | otherwise  = annBlip
+        -- targets :: [Channel]
+        -- the rooms to announce to.  if flooded, only echo back to source.
+        targets | hasFlooded = [src]
+                | otherwise  = channels
 
-        -- the response.  If allowed, broadcasts the announcement to every
-        --   channel on the `channels` list config variable.  If not
-        --   allowed (because of flooding), only outputs a "No Flooding!"
-        --   message to the channel where the announcement request was
-        --   received.
-        -- Wraps it all up in the `OutMessages` container.
-    let outmsgs = fmap (\(nick, ann) ->
-                    let amt  = M.findWithDefault 0 nick amnts
-                        msgs | amt <= floodLimit = (, [ann]) <$> channels
-                             | otherwise         = [(src, ["No Flooding!"])]
-                    in  OutMessages (M.fromList msgs)
-                    ) annBlip
+        -- outputs :: Blip (Map Channel [Message])
+        -- blip stream that emits a map of messages to send to each
+        -- channel.
+        outputs = M.fromList . zip targets . repeat <$> outMsg
 
-    -- on non-blips, output `mempty` (an `OutMessages` map w/ no messages)
-    fromBlips mempty -< outmsgs
+    -- when 'outputs' is not emitting, just pop out an empty 'OutMessages'.
+    -- Otherwise, make one from the 'Map' that was emitted.
+    fromBlips mempty OutMessages -< outputs
   where
-    floodLimit :: Int
-    floodLimit = 3
-    -- Look for commands making announcements; returns `Maybe (Nick,
-    --   String)` --- the nick making the announcement, and the announcement.
-    announcing :: InMessage -> Maybe (Nick, String)
-    announcing (InMessage nick msg _ _) =
+    getAnnounce :: (Nick, Message) -> Maybe [Message]
+    getAnnounce (nick, msg) =
         case words msg of
-          "@ann":ann -> Just (nick, nick ++ " says, \"" ++ unwords ann ++ "\".")
+          "@ann":ann -> Just [nick ++ " says \"" ++ unwords ann ++ "\"."]
           _          -> Nothing
-    -- nothing fancy; listens for incoming nicks and increments a nick-Int
-    --   map on for every blip.
-    counter :: Auto m (Blip Nick) (Map Nick Int)
-    counter = scanB (\m n -> M.insertWith (+) n 1 m) M.empty
+    floodLimit = 5
+    isEcho msg = case words msg of
+                   "@echo":xs -> Just [unwords xs]
+                   _          -> Nothing
+    countAnns :: Auto m (Blip Nick) (Map Nick Int)
+    countAnns = scanB countingFunction M.empty
+    countingFunction :: Map Nick Int -> Nick -> Map Nick Int
+    countingFunction mp nick = M.insertWith (+) nick 1 mp
 
 -- | Serialize instances for the time types.
 instance Serialize UTCTime where
