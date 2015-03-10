@@ -81,7 +81,7 @@ chatBot = mconcat [ s "seen"  $ perRoom seenBot     -- seenBot, self-serializing
 --   input/output.
 perRoom :: Monad m => ChatBot' m -> ChatBot m
 perRoom cb' = proc im -> do
-    outs <- fromBlipsWith [] . cb' -< im
+    outs <- fromBlips [] . cb' -< im
     id -< OutMessages $ M.singleton (_inMessageSource im) outs
 
 -- | The Modules/bots
@@ -133,7 +133,7 @@ karmaBot = proc (InMessage _ msg _ _) -> do
     -- function to look up a nick, if one is asked for
     let lookupKarma :: Nick -> [Message]
         lookupKarma nick = let karm = M.findWithDefault 0 nick karmas
-                          in  [nick ++ " has a karma of " ++ show karm ++ "."]
+                           in  [nick ++ " has a karma of " ++ show karm ++ "."]
 
     -- output is, whenever `karmaBlip` stream emits, look up the result
     id -< lookupKarma . fst <$> karmaBlip
@@ -185,7 +185,7 @@ announceBot = proc (InMessage nick msg src time) -> do
 
     -- when 'outputs' is not emitting, just pop out an empty 'OutMessages'.
     -- Otherwise, make one from the 'Map' that was emitted.
-    fromBlips mempty OutMessages -< outputs
+    fromBlipsWith mempty OutMessages -< outputs
   where
     getAnnounce :: (Nick, Message) -> Maybe [Message]
     getAnnounce (nick, msg) =
