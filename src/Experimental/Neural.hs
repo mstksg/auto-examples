@@ -4,77 +4,82 @@
 module Main where
 
 import Control.Auto
-import Debug.Trace
 import Data.List
 import Data.Profunctor
-import System.Random
-import Prelude hiding ((.), id)
+import Data.Serialize
 import Data.Traversable
+import Debug.Trace
+import Linear.Metric
+import Linear.V4
+import Linear.Vector
+import Prelude hiding   ((.), id)
+import System.Random
 
-data Training = Training { trainingInput  :: [Double]
-                         , trainingOutput :: [Double]
-                         }
-
-type Neural m o = Auto m (Either ([Double], o) [Double]) o
-type UNeural m o = Auto m [Double] o
-type TNeural m o = Auto m ([Double], o) o
+type Neural m i o = Auto m (Either (i, o) i) o
+type UNeural m i o = Auto m i o
+type TNeural m i o = Auto m (i, o) o
 
 fromU :: Monad m
-      => UNeural m o
-      -> Neural m o
+      => UNeural m i o
+      -> Neural m i o
 fromU = lmap (fst ||| id)
 
-fromT :: (Monad m, Monoid o)
-      => TNeural m o
-      -> Neural m o
-fromT = lmap (id ||| (, mempty))
+fromT :: (Monad m, Additive o, Num a)
+      => TNeural m i (o a)
+      -> Neural m i (o a)
+fromT = lmap (id ||| (, zero))
 
-fixedWeights :: Monad m => [Double] -> UNeural m Double
-fixedWeights weights = arr (sum . zipWith (*) weights)
+-- fixedWeights :: Monad m => [Double] -> UNeural m Double
+-- fixedWeights weights = arr (sum . zipWith (*) weights)
 
-testNet :: Monad m => UNeural m [Double]
-testNet = layer 2 [0.2,0.6,0.2] . layer 3 [0.3,0.7] . layer 2 [0.1,0.5,0.1,0.3]
-  where
-    layer :: Monad m => Int -> [Double] -> UNeural m [Double]
-    layer n = sequenceA . replicate n . fixedWeights
+-- testNet :: Monad m => UNeural m [Double]
+-- testNet = layer 2 [0.2,0.6,0.2] . layer 3 [0.3,0.7] . layer 2 [0.1,0.5,0.1,0.3]
+--   where
+--     layer :: Monad m => Int -> [Double] -> UNeural m [Double]
+--     layer n = sequenceA . replicate n . fixedWeights
 
-trainNodeFrom :: Monad m => [Double] -> Neural m Double
+trainNodeFrom :: ( Monad vi
+                 , Applicative vi
+                 , Metric vi
+                 , Additive vi
+                 , Traversable vi
+                 , Num (vi Double)
+                 , Show (vi Double)
+                 , Serialize (vi Double)
+                 , Monad m
+                 )
+              => vi Double
+              -> Neural m (vi Double) Double
 trainNodeFrom = mkState f
   where
     dw     = 0.01
+    dwDiag = scaled (pure dw)
     wNudge = 0.1
-    -- rNudge = 199
-    f (Left (inp, out)) weights = traceShow weights'
-                                            (dot inp weights', weights')
+    f (Left (inp, out)) weights = traceShow weights' (dot inp weights', weights')
       where
-        weights'  = map descend (zipWith const [0..] weights)
-        result    = dot inp weights
-        resultErr = (result - out)**2
-        descend i = w - drdw * wNudge
-          where
-            (wsL, w: wsR) = splitAt i weights
-            w'    = w + dw
-            ws'   = wsL ++ (w' : wsR)
-            resE' = (dot inp ws' - out)**2
-            drdw  = (resE' - resultErr) / dw
+        result      = dot inp weights
+        resultErr   = (result - out)**2
+        weights'    = do
+          dwb <- dwDiag
+          w   <- weights
+
+          let ws'   = dwb + weights
+              resE' = (dot inp ws' - out)**2
+              drdw  = (resE' - resultErr) / dw
+
+          return (w - drdw * wNudge)
     f (Right inp) weights = (dot inp weights, weights)
 
-dw :: Double
-dw = 0.1
-
-dot :: Num a => [a] -> [a] -> a
-dot x y = sum (zipWith (*) x y)
-
-testPoints :: [([Double], Double)]
-testPoints = map (\inp -> (inp, dot ws inp)) . transpose . map (randoms . mkStdGen) $ [25645,45764,1354,75673]
+testPoints :: [(V4 Double, Double)]
+testPoints = map (\[a,b,c,d] -> (V4 a b c d, dot ws (V4 a b c d)))
+           . transpose . map (randoms . mkStdGen)
+           $ [25645,45764,1354,75673]
   where
-    ws = [0.05,0.6,0.2,0.15]
-    -- ws = [1,0,0,0]
+    ws = V4 0.05 0.6 0.2 0.15
 
-asTest :: Monad m => Neural m Double -> Neural m Double
+asTest :: Monad m => Neural m (vi Double) Double -> Neural m (vi Double) Double
 asTest = fmap (**2) . liftA2 (-) (arr (snd ||| const 0))
 
 main :: IO ()
-main = mapM_ print $ streamAuto' (asTest (trainNodeFrom [0.25,0.25,0.25,0.25])) (take 1000 $ map Left testPoints)
--- main = mapM_ print $ streamAuto' (asTest (trainNodeFrom [1,0,0,0])) (take 1000 $ map Left testPoints)
+main = mapM_ print $ streamAuto' (asTest (trainNodeFrom (V4 0.25 0.25 0.25 0.25))) (take 1000 $ map Left testPoints)
 
