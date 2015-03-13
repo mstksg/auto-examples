@@ -24,7 +24,6 @@ executable hangman
                      , auto
                      , random
                      , transformers
-                     , linear
   hs-source-dirs:      src
   default-language:    Haskell2010
 
