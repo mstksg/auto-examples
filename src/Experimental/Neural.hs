@@ -57,10 +57,11 @@ trainNodeFrom :: forall m vi vo.
                  , Show (vo (vi Double))
                  , Monad m
                  )
-              => vo (vi Double) -- inner: by-input weights
+              => (vo Double -> vo Double)   -- map before exit
+              -> vo (vi Double) -- inner: by-input weights
                                 -- outer: by-output weight sets
               -> Neural m (vi Double) (vo Double)
-trainNodeFrom = mkState f
+trainNodeFrom outFunc = mkState f
   where
     dw    :: Double
     dw    = 0.05
@@ -94,8 +95,6 @@ trainNodeFrom = mkState f
 
             return (weight - dErrdW * wStep)
     f (Right input) weights = (outFunc $ weights !* input, weights)
-    outFunc :: vo Double -> vo Double
-    outFunc = id
 
 testPoints :: [(V4 Double, V3 Double)]
 testPoints = map (\[a,b,c,d] -> (V4 a b c d, ws !* V4 a b c d))
@@ -127,7 +126,7 @@ testNudge = V2 (V3 (V2 (V3 1 0 0)
                        (V3 0 0 1)))
 
 main :: IO ()
-main = mapM_ print $ streamAuto' (quadrance <$> asTest (trainNodeFrom w0)) (take 1000 $ map Left testPoints)
+main = mapM_ print $ streamAuto' (quadrance <$> asTest (trainNodeFrom id w0)) (take 1000 $ map Left testPoints)
   where
     -- w0 = V1 (V4 0.25 0.25 0.25 0.25)
     w0 = V3 (V4 0.25 0.25 0.25 0.25)

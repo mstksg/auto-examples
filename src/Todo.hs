@@ -14,25 +14,18 @@
 --
 -- Supports adding, modifying, completing/uncompleting, deleting.
 
-module Main (main) where
+module Todo (TaskID, InpEvent(..), TaskCmd(..), Task(..), taskInp) where
 
 import Control.Auto
 import Control.Auto.Blip
 import Control.Auto.Collection
-import Control.Auto.Core       (autoConstr)
-import Control.Auto.Interval
-import Control.Auto.Process
-import Control.Auto.Run
-import Control.Auto.Time
 import Control.Monad
 import Control.Monad.Fix
 import Data.Map                (Map)
 import Data.Maybe
-import Data.Monoid
 import Data.Serialize
 import GHC.Generics
 import Prelude hiding          ((.), id)
-import Text.Read
 import qualified Data.Map      as M
 
 type TaskID = Int
@@ -55,19 +48,19 @@ data Task = Task { taskDescr     :: Maybe String
 
 instance Serialize Task
 
--- | The main Auto.  Takes in a Blip stream of input events, and outputs
--- a Map of TaskId's and Tasks.
-taskInp :: MonadFix m => Auto m (Blip InpEvent) (Map TaskID Task)
-taskInp = proc inpEvtB -> do
+-- | The main Auto.  Takes in a stream of input events, and outputs
+-- Maps of TaskId's and Tasks.
+taskInp :: MonadFix m => Auto m InpEvent (Map TaskID Task)
+taskInp = proc inpEvt -> do
 
         -- the previous taskMap
     rec ids <- arrD M.keys [] -< tMap
 
         -- "forking" the blip stream
         -- * one blip stream for new task blips, filtering on isAdd
-        newTaskB <- perBlip newTask . mapMaybeB isAdd -< inpEvtB
+        newTaskB <- perBlip newTask . emitJusts isAdd -< inpEvt
         -- * one blip stream for task mod blips, filtering on validTE
-        modTaskB <- mapMaybeB validTE                 -< (ids,) <$> inpEvtB
+        modTaskB <- emitJusts validTE                 -< (ids, inpEvt)
 
         -- re-join them back together with `mergeL`
         let tmInpB :: Blip (TaskID, TaskCmd)
@@ -115,41 +108,8 @@ taskMap = gather (const taskAuto)
     f (Just t) (TEModify str) = Just (t { taskDescr     = Just str })
     f t        _              = t
 
-
--- | Used with `mapMaybeB` to filter the stream on adding blips
+-- | Used with `emitJusts` to filter the stream on "adding" blips
 isAdd :: InpEvent -> Maybe String
 isAdd (IEAdd descr) = Just descr
 isAdd _             = Nothing
 
--- | Parse a string input.  Just for testing.  Ideally, these events will
--- come from a GUI.
-parseInp :: String -> Maybe InpEvent
-parseInp = p . words
-  where
-    p ("A":xs)   = Just (IEAdd (unwords xs))
-    p ("D":n:_)  = readMaybe n <&> \n' -> IETask n' TEDelete
-    p ("C":n:_)  = readMaybe n <&> \n' -> IETask n' (TEComplete True)
-    p ("U":n:_)  = readMaybe n <&> \n' -> IETask n' (TEComplete False)
-    p ("M":n:xs) = readMaybe n <&> \n' -> IETask n' (TEModify (unwords xs))
-    p _          = Nothing
-    (<&>) :: Functor f => f a -> (a -> b) -> f b
-    x <&> f = fmap f x
-
-
-
--- | Just for command line testing use, turning the Map into a String.
--- Ideally this would be handled by a GUI.
-formatTodo :: Map TaskID Task -> String
-formatTodo = unlines . map format . M.toList
-  where
-    format (n, Task desc compl) = concat [ show n
-                                         , ". ["
-                                         , if compl then "X" else " "
-                                         , "] "
-                                         , fromMaybe "" desc
-                                         ]
-
-main :: IO ()
-main = void . interactAuto $ fmap (Just . formatTodo) taskInp
-                           . emitJusts parseInp
--- main = putStrLn . autoConstr $ (taskInp :: Auto' (Blip InpEvent) (Map TaskID Task))

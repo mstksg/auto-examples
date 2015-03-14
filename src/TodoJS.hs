@@ -1,186 +1,208 @@
-{-# LANGUAGE Arrows #-}
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE TupleSections #-}
 
--- | "Todo"
+-- | "Todo-JS"
 --
--- A simple todo app.  Written so that the logic can be plug straight into
--- a GUI...where the GUI would send GUI events as blips into the main
--- `taskInp` Auto, and then re-display the output `Map`.  Right now is
--- equipped with testing functions for command line usage, so there is
--- rudimentary command line usage with the commands shown in
--- `parseInp`...but I expect to port this to various GUI's soon to see how
--- simply it can be done.
+-- Simple todo app on ghcjs, with logic straight from the non-javascript
+-- version; that is, an identical 'Auto'.  Mostly a ghcjs wrapper working
+-- with GHCJS.DOM ... which is admittedly a little messy, but I'm in the
+-- process of cleaning it up :)
 --
--- Supports adding, modifying, completing/uncompleting, deleting.
+-- 'Auto' supports adding, modifying, completing/uncompleting, deleting,
+-- but so far the GUI only supports adding and deleting.
 
 module Main (main) where
 
 import Control.Applicative
 import Control.Auto
-import Control.Auto.Blip
-import Control.Auto.Collection
-import Control.Auto.Interval
-import Control.Auto.Process
 import Control.Auto.Run
-import Control.Auto.Time
 import Control.Concurrent
-import Control.Monad
-import Control.Monad.Fix
-import Data.Map                      (Map)
+import Control.Monad               (unless)
+import Control.Monad.IO.Class
+import Data.Foldable               (forM_)
+import Data.Map                    (Map)
 import Data.Maybe
-import Data.Monoid
-import Data.Serialize
-import GHC.Generics
 import GHCJS.DOM
-import GHCJS.DOM.CSSStyleDeclaration
 import GHCJS.DOM.Document
 import GHCJS.DOM.Element
+import GHCJS.DOM.EventM
+import GHCJS.DOM.HTMLButtonElement
 import GHCJS.DOM.HTMLElement
+import GHCJS.DOM.HTMLInputElement
+import GHCJS.DOM.HTMLLabelElement
+import GHCJS.DOM.HTMLLinkElement
+import GHCJS.DOM.HTMLTitleElement
 import GHCJS.DOM.Node
 import GHCJS.DOM.Types
-import Prelude hiding                ((.), id)
-import Text.Read
-import qualified Data.Map            as M
-
-type TaskID = Int
-
--- | An Input event, from the GUI
-data InpEvent = IEAdd  String
-              | IETask TaskID TaskCmd
-              deriving Show
-
--- | Describing a task command
-data TaskCmd = TEDelete
-             | TEComplete Bool
-             | TEModify String
-             deriving Show
-
--- | A single task
-data Task = Task { taskDescr     :: Maybe String
-                 , taskCompleted :: Bool
-                 } deriving (Show, Generic)
-
-instance Serialize Task
-
--- | The main Auto.  Takes in a Blip stream of input events, and outputs
--- a Map of TaskId's and Tasks.
-taskInp :: MonadFix m => Auto m (Blip InpEvent) (Map TaskID Task)
-taskInp = proc inpEvtB -> do
-
-        -- the previous taskMap
-    rec ids <- arrD M.keys [] -< tMap
-
-        -- "forking" the blip stream
-        -- * one blip stream for new task blips, filtering on isAdd
-        newTaskB <- perBlip newTask . mapMaybeB isAdd -< inpEvtB
-        -- * one blip stream for task mod blips, filtering on validTE
-        modTaskB <- mapMaybeB validTE                 -< (ids,) <$> inpEvtB
-
-        -- re-join them back together with `mergeL`
-        let tmInpB = newTaskB `mergeL` modTaskB
-
-        -- a Map of Task Id's and Tasks, running `taskMap` per emitted
-        -- input
-        tMap <- holdWith mempty . perBlip taskMap -< tmInpB
-
-    id -< tMap
-  where
-    -- Used with `mapMaybeB` to filter the stream on valid task commands
-    validTE (ids, IETask n te) | n `elem` ids = Just (n, te)
-    validTE _                                 = Nothing
-
-    -- Used to increment id's and create a new task
-    newTask = proc descr -> do
-      newId <- count -< ()
-      id -< (newId, TEModify descr)
-
--- | An Auto that takes a TaskID and a Task command and updates an internal
--- map of TaskID's to Tasks, using `gather`.  See documentation for help on
--- `gather`.
---
--- Basically, `gather` keeps a `Map` of `k`s to `Interval a b`s (An
--- `Interval a b` is just an `Auto a (Maybe b)`.  Give a `(k, a)` as an
--- input, and it feeds the `a` to the `Auto` at `k`.  Every step, outputs
--- a full map of the last emitted value from every `Auto`.
---
--- Here, it emits, at every step, the full map of all tasks and their
--- statuses.  The internal map is a map of Autos representing each task.
--- We can "update" a task by feeding in a tuple with the Task ID we want to
--- update, and the TaskCmd we want the task auto to receive.
---
--- The Task Auto can "delete itself" by outputting `Nothing`.
-taskMap :: Monad m => Auto m (TaskID, TaskCmd) (Map TaskID Task)
-taskMap = gather (const taskAuto)
-  where
-    -- the Auto for each individual task: fold over the folding function
-    -- `f` for each input, with the current task.  Use `Nothing` to signal
-    -- that it wants to delete itself.
-    taskAuto = accum f (Just (Task Nothing False))
-    f _        TEDelete       = Nothing
-    f (Just t) (TEComplete c) = Just (t { taskCompleted = c        })
-    f (Just t) (TEModify str) = Just (t { taskDescr     = Just str })
-    f t        _              = t
-
-
--- | Used with `mapMaybeB` to filter the stream on adding blips
-isAdd :: InpEvent -> Maybe String
-isAdd (IEAdd descr) = Just descr
-isAdd _             = Nothing
-
--- | Parse a string input.  Just for testing.  Ideally, these events will
--- come from a GUI.
-parseInp :: String -> Maybe InpEvent
-parseInp = p . words
-  where
-    p ("A":xs)   = Just (IEAdd (unwords xs))
-    p ("D":n:_)  = readMaybe n <&> \n' -> IETask n' TEDelete
-    p ("C":n:_)  = readMaybe n <&> \n' -> IETask n' (TEComplete True)
-    p ("U":n:_)  = readMaybe n <&> \n' -> IETask n' (TEComplete False)
-    p ("M":n:xs) = readMaybe n <&> \n' -> IETask n' (TEModify (unwords xs))
-    p _          = Nothing
-    (<&>) :: Functor f => f a -> (a -> b) -> f b
-    x <&> f = fmap f x
-
-
-
--- | Just for command line testing use, turning the Map into a String.
--- Ideally this would be handled by a GUI.
-formatTodo :: Map TaskID Task -> String
-formatTodo = unlines . map format . M.toList
-  where
-    format (n, Task desc compl) = concat [ show n
-                                         , ". ["
-                                         , if compl then "X" else " "
-                                         , "] "
-                                         , fromMaybe "" desc
-                                         ]
+import GHCJS.Foreign
+import Prelude hiding              ((.), id)
+import Todo
+import qualified Data.Map.Strict   as M
 
 main :: IO ()
-main =
-  runWebGUI $ \ webView -> do
+main = runWebGUI $ \ webView -> do
     Just doc <- webViewGetDomDocument webView -- webView.document
+
+    Just hd <- documentGetHead doc
+
+    Just title <- createCast doc "title" castToHTMLTitleElement
+    htmlTitleElementSetText title "auto TodoMVC"
+    _ <- nodeAppendChild hd (Just title)
+
+    forM_ ["assets/base.css","assets/index.css"] $ \lnk -> do
+      Just cssLink <- createCast doc "link" castToHTMLLinkElement
+      _ <- nodeAppendChild hd (Just cssLink)
+      htmlLinkElementSetRel cssLink "stylesheet"
+      elementSetAttribute cssLink "type" "text/css"
+      htmlLinkElementSetHref cssLink lnk
+
     Just body <- documentGetBody doc     -- doc.body
 
-    -- If we are in the browser let's shrink the terminal window to make room
-    mbTerminal    <- fmap castToHTMLDivElement   <$> documentGetElementById doc "terminal"
-    case mbTerminal of
-      Just terminal -> do
-        Just style <- elementGetStyle terminal
-        cssStyleDeclarationSetProperty style "height" "100" ""
-      _             -> return ()
+    Just todomvc_wrapper <- createCast doc "div" castToHTMLDivElement
+    _ <- nodeAppendChild body (Just todomvc_wrapper)
+    elementSetClassName todomvc_wrapper "todomvc-wrapper"
+    -- elementSetAttribute todomvc_wrapper "style" "visibility:hidden"
 
-    Just div <- fmap castToHTMLDivElement <$> documentCreateElement doc "div"
-    elementSetAttribute div "style" "position:relative;left:0px;top:0px;background-color:#e0d0ff;width:700px;height:500px"
-    elementSetAttribute div "id" "todo"
-    nodeAppendChild body (Just div)
+    Just todoapp <- createCast doc "section" castToHTMLElement
+    _ <- nodeAppendChild todomvc_wrapper (Just todoapp)
+    elementSetId todoapp "todoapp"
 
+    Just header <- createCast doc "header" castToHTMLElement
+    _ <- nodeAppendChild todoapp (Just header)
 
-    -- unlisten <- engine webView "freecell" =<< mkFreecell
-    -- unlisten <- undefined
+    Just heading <- createCast doc "h1" castToHTMLHeadingElement
+    _ <- nodeAppendChild header (Just heading)
+    htmlElementSetInnerHTML heading "todo"
 
-    -- -- Prevent finalizers running too soon
-    -- forkIO $ forever (threadDelay 1000000000) >> unlisten
+    Just new_todo <- createCast doc "input" castToHTMLInputElement
+    _ <- nodeAppendChild header (Just new_todo)
+    elementSetId new_todo "new-todo"
+    htmlInputElementSetPlaceholder new_todo "What needs to be done?"
+    htmlInputElementSetAutofocus new_todo True
+    htmlInputElementSetName new_todo "newTodo"
+    -- -- to force the field?
+    -- htmlInputElementSetValue new-todo "blah blah"
+    -- register on-input handler here
+    -- register on-submit handler here?
+
+    Just main_ <- createCast doc "section" castToHTMLElement
+    _ <- nodeAppendChild todoapp (Just main_)
+    elementSetId main_ "main"
+    -- -- should depend on if there are any elements or not
+    -- elementSetAttribute s_main "style" "visibility:hidden"
+
+    Just toggle_all <- createCast doc "input" castToHTMLInputElement
+    _ <- nodeAppendChild main_ (Just toggle_all)
+    elementSetId toggle_all "toggle-all"
+    htmlInputElementSetName toggle_all "toggle"
+    elementSetAttribute toggle_all "type" "checkbox"
+    -- to be determined by if all are complete or not
+    htmlInputElementSetChecked toggle_all False
+    -- register on-click handler here?
+
+    Just toggle_all_label <- createCast doc "label" castToHTMLLabelElement
+    _ <- nodeAppendChild main_ (Just toggle_all_label)
+    htmlLabelElementSetHtmlFor toggle_all_label "toggle-all"
+    htmlElementSetInnerHTML toggle_all_label "Mark all as complete"
+
+    Just todo_list <- createCast doc "ul" castToHTMLUListElement
+    _ <- nodeAppendChild main_ (Just todo_list)
+    elementSetId todo_list "todo-list"
+    -- items go here
+
+    Just footer <- createCast doc "footer" castToHTMLElement
+    _ <- nodeAppendChild todoapp (Just footer)
+    elementSetId footer "footer"
+    -- -- should depend on if there are any elements or not
+    -- elementSetAttribute s_main "style" "visibility:hidden"
+
+    Just todo_count <- createCast doc "span" castToHTMLElement
+    _ <- nodeAppendChild footer (Just todo_count)
+    elementSetId todo_count "todo-count"
+    -- put in tasks left
+    htmlElementSetInnerHTML todo_count $ "<strong>" <> "</strong> tasks left"
+
+    Just filters <- createCast doc "ul" castToHTMLUListElement
+    _ <- nodeAppendChild footer (Just filters)
+    elementSetId filters "filters"
+    -- add in filter links here
+
+    Just clear_completed <- createCast doc "button" castToHTMLButtonElement
+    _ <- nodeAppendChild footer (Just clear_completed)
+    elementSetId clear_completed "clear-completed"
+    elementSetClassName clear_completed "clear-completed"
+    -- -- should depend on if there are any cleared or not
+    -- elementSetAttribute s_main "style" "visibility:hidden"
+    -- add in click callbacks here
+    htmlElementSetInnerHTML todo_count $ "Clear completed (" <> ")"
+
+    Just info <- createCast doc "footer" castToHTMLElement
+    _ <- nodeAppendChild todomvc_wrapper (Just info)
+    elementSetId info "info"
+    htmlElementSetInnerHTML info $ "<p>Double-click to edit a todo</p>"
+                                <> "<p>Written by Justin Le</p>"
+                                <> "<p>Tempaltes from TodoMVC</p>"
+
+    
+
+    
+
+    
 
     return ()
 
+
+
+--     Just todoNew <- createCast doc "div" castToHTMLDivElement
+
+--     Just newForm <- createCast doc "form" castToHTMLFormElement
+--     Just newInp <- createCast doc "input" castToHTMLInputElement
+--     Just newBut <- createCast doc "button" castToHTMLButtonElement
+--     htmlElementSetInnerHTML newBut "add"
+
+--     _ <- nodeAppendChild newForm (Just newInp)
+--     _ <- nodeAppendChild newForm (Just newBut)
+
+--     _ <- nodeAppendChild todoNew (Just newForm)
+
+--     _ <- nodeAppendChild todoBox (Just todoNew)
+
+--     Just todoItems <- createCast doc "div" castToHTMLDivElement
+--     _ <- nodeAppendChild todoBox (Just todoItems)
+
+--     _ <- nodeAppendChild body (Just todoBox)
+
+--     inputChan <- newChan :: IO (Chan InpEvent)
+--     block <- newEmptyMVar :: IO (MVar ())
+
+--     _ <- elementOnsubmit newForm $ do
+--       preventDefault
+--       liftIO $ do
+--         inp <- htmlInputElementGetValue newInp
+--         unless (null inp) $
+--           writeChan inputChan (IEAdd inp)
+--         htmlInputElementSetValue newInp ""
+
+--     _ <- runOnChan (updateDiv doc todoItems block inputChan) inputChan taskInp
+
+--     takeMVar block
+
+
+
+
+updateDiv :: Document -> HTMLDivElement -> MVar () -> Chan InpEvent -> Map TaskID Task -> IO Bool
+updateDiv doc todoItems _ inputChan tasks = do
+    htmlElementSetInnerHTML todoItems ""
+
+    _ <- flip M.traverseWithKey tasks $ \k t -> do
+      Just newItem <- createCast doc "div" castToHTMLDivElement
+      htmlElementSetInnerHTML newItem (show t)
+
+      _ <- elementOnclick newItem . liftIO $
+        writeChan inputChan (IETask k TEDelete)
+
+      nodeAppendChild todoItems (Just newItem)
+
+    return True
+
+createCast :: (IsDocument self, ToJSString tagName) => self -> tagName -> (Element -> b) -> IO (Maybe b)
+createCast doc tag coercer = fmap coercer <$> documentCreateElement doc tag
