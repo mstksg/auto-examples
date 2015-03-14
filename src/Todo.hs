@@ -14,7 +14,7 @@
 --
 -- Supports adding, modifying, completing/uncompleting, deleting.
 
-module Todo (TaskID, InpEvent(..), TaskCmd(..), Task(..), todoApp) where
+module Todo (TaskID, TodoInp(..), TaskCmd(..), Task(..), todoApp) where
 
 import Control.Auto
 import Control.Auto.Blip
@@ -31,7 +31,7 @@ import qualified Data.Map      as M
 type TaskID = Int
 
 -- | An Input event, from the GUI
-data InpEvent = IEAdd  String
+data TodoInp = IEAdd  String
               | IETask TaskID TaskCmd
               | IEAll TaskCmd
               deriving Show
@@ -52,7 +52,7 @@ instance Serialize Task
 
 -- | The main Auto.  Takes in a stream of input events, and outputs
 -- Maps of TaskId's and Tasks.
-todoApp :: MonadFix m => Auto m InpEvent (Map TaskID Task)
+todoApp :: MonadFix m => Auto m TodoInp (Map TaskID Task)
 todoApp = proc inpEvt -> do
 
         -- the previous taskMap
@@ -120,7 +120,7 @@ taskMap = gatherMany (const taskAuto)
     f t        _              = t
 
 -- | Used with `emitJusts` to filter the stream on "adding" blips
-isAdd :: InpEvent -> Maybe String
+isAdd :: TodoInp -> Maybe String
 isAdd (IEAdd descr) = Just descr
 isAdd _             = Nothing
 

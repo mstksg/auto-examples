@@ -12,7 +12,7 @@ import qualified Data.Map as M
 
 -- | Parse a string input.  Just for testing.  Ideally, these events will
 -- come from a GUI.
-parseInp :: String -> Maybe InpEvent
+parseInp :: String -> Maybe TodoInp
 parseInp = p . words
   where
     p ("A":xs)   = Just (IEAdd (unwords xs))
@@ -22,7 +22,7 @@ parseInp = p . words
     p ("P":n:_)  = onId n TEPrune
     p ("M":n:xs) = readMaybe n <&> \i -> IETask i (TEModify (unwords xs))
     p _          = Nothing
-    onId :: String -> TaskCmd -> Maybe InpEvent
+    onId :: String -> TaskCmd -> Maybe TodoInp
     onId "*" te = Just (IEAll te)
     onId n   te = readMaybe n <&> \i -> IETask i te
     (<&>) :: Functor f => f a -> (a -> b) -> f b
