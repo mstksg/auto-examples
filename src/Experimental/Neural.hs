@@ -27,12 +27,12 @@ type TNeural m i o = Auto m (i, o) o
 fromU :: Monad m
       => UNeural m i o
       -> Neural m i o
-fromU = lmap (fst ||| id)
+fromU = lmap (either fst id)
 
 fromT :: (Monad m, Additive o, Num a)
       => TNeural m i (o a)
       -> Neural m i (o a)
-fromT = lmap (id ||| (, zero))
+fromT = lmap (either id (, zero))
 
 logistic :: Floating a => a -> a -> a -> a
 logistic x0 k x = 1 / (1 + exp (-k * (x - x0)))
@@ -109,7 +109,7 @@ testPoints = map (\[a,b,c,d] -> (V4 a b c d, ws !* V4 a b c d))
 asTest :: (Additive vo, Monad m)
        => Neural m (vi Double) (vo Double)
        -> Neural m (vi Double) (vo Double)
-asTest = liftA2 (^-^) (arr (snd ||| const zero))
+asTest = liftA2 (^-^) (arr (either snd (const zero)))
 
 testNudge :: V2 (V3 (V2 (V3 Double)))
 testNudge = V2 (V3 (V2 (V3 1 0 0)

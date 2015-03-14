@@ -2,7 +2,6 @@
 module Main (main) where
 
 import Control.Auto
-import Control.Auto.Blip
 import Control.Monad
 import Data.Map           (Map)
 import Data.Maybe
@@ -17,11 +16,15 @@ parseInp :: String -> Maybe InpEvent
 parseInp = p . words
   where
     p ("A":xs)   = Just (IEAdd (unwords xs))
-    p ("D":n:_)  = readMaybe n <&> \n' -> IETask n' TEDelete
-    p ("C":n:_)  = readMaybe n <&> \n' -> IETask n' (TEComplete True)
-    p ("U":n:_)  = readMaybe n <&> \n' -> IETask n' (TEComplete False)
-    p ("M":n:xs) = readMaybe n <&> \n' -> IETask n' (TEModify (unwords xs))
+    p ("D":n:_)  = onId n TEDelete
+    p ("C":n:_)  = onId n (TEComplete True)
+    p ("U":n:_)  = onId n (TEComplete False)
+    p ("P":n:_)  = onId n TEPrune
+    p ("M":n:xs) = readMaybe n <&> \i -> IETask i (TEModify (unwords xs))
     p _          = Nothing
+    onId :: String -> TaskCmd -> Maybe InpEvent
+    onId "*" te = Just (IEAll te)
+    onId n   te = readMaybe n <&> \i -> IETask i te
     (<&>) :: Functor f => f a -> (a -> b) -> f b
     x <&> f = fmap f x
 
@@ -39,5 +42,5 @@ formatTodo = unlines . map format . M.toList
 
 main :: IO ()
 main = void . interactAuto $ Just <$> fromBlips ""
-                           . perBlip (fmap formatTodo taskInp)
+                           . perBlip (fmap formatTodo todoApp)
                            . emitJusts parseInp
