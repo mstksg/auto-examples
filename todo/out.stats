@@ -1,0 +1,121 @@
+code size summary per package:
+
+auto-0.2.0.0:            198289
+base:                    430539
+bytestring-0.10.6.0:     3358
+cereal-0.4.1.1:          98122
+containers-0.5.6.2:      135865
+ghc-prim:                14801
+ghcjs-prim-0.1.0.0:      8587
+integer-gmp:             7385
+main:                    95560
+transformers-0.4.2.0:    868
+
+
+code size per module:
+
+auto-0.2.0.0
+    Control.Auto.Blip:                  11873
+    Control.Auto.Blip.Internal:         676
+    Control.Auto.Collection:            35665
+    Control.Auto.Core:                  145461
+    Control.Auto.Run:                   4614
+
+base
+    Control.Arrow:                      245
+    Control.Category:                   411
+    Control.Exception.Base:             6958
+    Control.Monad.Fix:                  584
+    Data.Either:                        397
+    Data.List:                          2285
+    Data.Maybe:                         442
+    Data.Tuple:                         167
+    Data.Typeable:                      891
+    Data.Typeable.Internal:             1372
+    Foreign.C.Error:                    9715
+    Foreign.Marshal.Alloc:              149
+    Foreign.Marshal.Array:              2517
+    Foreign.Storable:                   2699
+    GHC.Base:                           4251
+    GHC.Char:                           740
+    GHC.Conc.Sync:                      4709
+    GHC.Enum:                           189
+    GHC.Err:                            218
+    GHC.Exception:                      2973
+    GHC.Foreign:                        12282
+    GHC.ForeignPtr:                     1936
+    GHC.Generics:                       987
+    GHC.IO:                             3650
+    GHC.IO.Buffer:                      1276
+    GHC.IO.BufferedIO:                  1066
+    GHC.IO.Device:                      1297
+    GHC.IO.Encoding:                    1030
+    GHC.IO.Encoding.Failure:            396
+    GHC.IO.Encoding.Latin1:             3684
+    GHC.IO.Encoding.Types:              1032
+    GHC.IO.Encoding.UTF8:               61531
+    GHC.IO.Exception:                   20171
+    GHC.IO.FD:                          35880
+    GHC.IO.Handle:                      477
+    GHC.IO.Handle.FD:                   7592
+    GHC.IO.Handle.Internals:            53012
+    GHC.IO.Handle.Text:                 31271
+    GHC.IO.Handle.Types:                3859
+    GHC.Int:                            802
+    GHC.List:                           5824
+    GHC.MVar:                           188
+    GHC.Ptr:                            188
+    GHC.Read:                           6853
+    GHC.STRef:                          194
+    GHC.Show:                           11769
+    GHC.Storable:                       1084
+    GHC.TopHandler:                     10214
+    GHC.Unicode:                        1486
+    GHC.Word:                           675
+    System.IO:                          186
+    System.Posix.Internals:             16203
+    Text.ParserCombinators.ReadP:       22585
+    Text.ParserCombinators.ReadPrec:    1
+    Text.Read:                          1321
+    Text.Read.Lex:                      66625
+
+bytestring-0.10.6.0
+    Data.ByteString:                    813
+    Data.ByteString.Internal:           2545
+
+cereal-0.4.1.1
+    Data.Serialize:                     62446
+    Data.Serialize.Builder:             1192
+    Data.Serialize.Get:                 32409
+    Data.Serialize.Put:                 2075
+
+containers-0.5.6.2
+    Data.Map.Base:                      106147
+    Data.Map.Strict:                    29718
+
+ghc-prim
+    GHC.CString:                        4515
+    GHC.Classes:                        7561
+    GHC.IntWord64:                      146
+    GHC.Tuple:                          1412
+    GHC.Types:                          1167
+
+ghcjs-prim-0.1.0.0
+    GHCJS.Prim:                         7811
+    GHCJS.Prim.Internal:                776
+
+integer-gmp
+    GHC.Integer.GMP.Prim:               172
+    GHC.Integer.Type:                   7213
+
+main
+    Main:                               26040
+    Todo:                               69520
+
+transformers-0.4.2.0
+    Data.Functor.Identity:              868
+
+
+
+packed metadata: 155521
+
