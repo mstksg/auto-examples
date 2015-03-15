@@ -10,7 +10,7 @@ ghcjs-base-0.1.0.0:      1597
 ghcjs-dom-0.1.1.3:       49545
 ghcjs-prim-0.1.0.0:      9448
 integer-gmp:             14617
-main:                    258639
+main:                    258698
 text-1.2.0.3:            21338
 transformers-0.4.2.0:    868
 
@@ -115,7 +115,7 @@ integer-gmp
     GHC.Integer.Type:                   14445
 
 main
-    Main:                               189119
+    Main:                               189178
     Todo:                               69520
 
 text-1.2.0.3
