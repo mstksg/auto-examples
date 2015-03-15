@@ -1,3 +1,13 @@
+-- | "Todo"
+--
+-- A command line client for the todo app in Todo.hs.  At every step, has
+-- a primitive instruction parser that parses instructions/commands, sends
+-- them into the 'Auto', and outputs the resulting Map of tasks in
+-- a pretty-ish way.
+--
+-- In a GUI, you would have a thread waiting for inputs on a `Chan` queue
+-- (using `runOnChan`, for example), and have your GUI elements dump
+-- commands into the queue, and render outputs as they come out.
 
 module Main (main) where
 
@@ -10,8 +20,7 @@ import Text.Read
 import Todo
 import qualified Data.Map as M
 
--- | Parse a string input.  Just for testing.  Ideally, these events will
--- come from a GUI.
+-- | Parse a string input.
 parseInp :: String -> Maybe TodoInp
 parseInp = p . words
   where
@@ -29,7 +38,6 @@ parseInp = p . words
     x <&> f = fmap f x
 
 -- | Just for command line testing use, turning the Map into a String.
--- Ideally this would be handled by a GUI.
 formatTodo :: Map TaskID Task -> String
 formatTodo = unlines . map format . M.toList
   where
@@ -41,6 +49,6 @@ formatTodo = unlines . map format . M.toList
                                          ]
 
 main :: IO ()
-main = void . interactAuto $ Just <$> fromBlips ""
+main = void . interactAuto $ Just <$> fromBlips ""    -- we need an Interval
                            . perBlip (fmap formatTodo todoApp)
                            . emitJusts parseInp

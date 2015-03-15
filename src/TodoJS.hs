@@ -183,10 +183,12 @@ renderInitial doc inputChan = do
     info <- createAppend doc todomvc_wrapper "footer" castToHTMLElement
     elementSetId info "info"
     htmlElementSetInnerHTML info $
-        "<p>Double-click to edit a todo</p>"
-      <> "<p>Written by <a href='http://jle.im'>Justin Le</a> "
+         "<p>Double-click to edit a todo</p>"
+      <> "<p>Written by <a href='http://jle.im'>Justin Le</a> on "
+      <> "<a href='https://github.com/ghcjs/ghcjs'>ghcjs</a> "
       <> "as an <a href='https://github.com/mstksg/auto'>auto</a> demo "
-      <> "(<a href='https://github.com/mstksg/auto-examples/blob/master/src/TodoJS.hs'>source</a>)</p>"
+      <> "(source: <a href='https://github.com/mstksg/auto-examples/blob/master/src/Todo.hs'>logic</a> "
+      <> "<a href='https://github.com/mstksg/auto-examples/blob/master/src/TodoJS.hs'>view</a>)</p>"
       <> "<p>Spec, templates, and assets from <a href='http://todomvc.com/'>TodoMVC</a></p>"
 
    -- one render with initial GUI conditions, to set things up

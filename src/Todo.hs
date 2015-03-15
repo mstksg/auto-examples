@@ -4,15 +4,18 @@
 
 -- | "Todo"
 --
--- A simple todo app.  Written so that the logic can be plug straight into
--- a GUI...where the GUI would send GUI events as blips into the main
--- `taskInp` Auto, and then re-display the output `Map`.  Right now is
--- equipped with testing functions for command line usage, so there is
--- rudimentary command line usage with the commands shown in
--- `parseInp`...but I expect to port this to various GUI's soon to see how
--- simply it can be done.
+-- The logic for a simple todo app.  It is structured so that its "input"
+-- are commands, and its output is a map of tasks to task id's.
 --
--- Supports adding, modifying, completing/uncompleting, deleting.
+-- Hooking it up to a GUI would be as simple as using `runOnChan` from
+-- "Control.Auto.Run", and having GUI actions dump commands to the `Chan`
+-- queue.
+--
+-- A simple command line client is in TodoCmd.hs, and a Javascript client
+-- using ghcjs can be found in TodoJS.hs.
+--
+-- Supports adding, modifying, "pruning", completing, uncompleting,
+-- deleting single or all tasks at a time.
 
 module Todo (TaskID, TodoInp(..), TaskCmd(..), Task(..), todoApp) where
 
@@ -32,9 +35,9 @@ type TaskID = Int
 
 -- | An Input event, from the GUI
 data TodoInp = IEAdd  String
-              | IETask TaskID TaskCmd
-              | IEAll TaskCmd
-              deriving Show
+             | IETask TaskID TaskCmd
+             | IEAll TaskCmd
+             deriving Show
 
 -- | Describing a task command
 data TaskCmd = TEDelete
