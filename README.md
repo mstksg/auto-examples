@@ -226,14 +226,26 @@ with recursive bindings.
 
 [todo]: https://github.com/mstksg/auto-examples/blob/master/src/Todo.hs
 
-A basic todo list implementation, with the logic written in a way that is
-meant for usage with a GUI.  Currently has a simple command line interface to
-simulate a GUI input/output, but I'm working on hooking it up to various GUI
-backends soon so we can have a real GUI demonstration of `auto`.
+Roughly following the [TodoMVC][] specs; a todo app with the ability to add,
+complete, uncomplete, delete, etc.
 
-Showcasing a GUI-based logic: streaming everything in through a central `Blip`
-stream, splitting it up into streams based on what `Auto`s want what, using
-`gather`, and spitting it all back out at the end.
+[TodoMVC]: http://todomvc.com
+
+The actual logic is [here][todo]; a command line client is at
+[TodoCmd.hs][], and a javascript client using ghcjs that uses the TodoMVC
+style sheets and guidelines are at [TodoJS.hs][].
+
+[TodoCmd.hs]: https://github.com/mstksg/auto-examples/blob/master/src/TodoCmd.hs
+[TodoJS.hs]: https://github.com/mstksg/auto-examples/blob/master/src/TodoJS.hs
+
+It demonstrates the architecture of a simple app:  Your app itself is an
+`Auto`, and your GUI elements/command line parsers simply drop inputs to the
+`Auto` in a queue to be processed one-by-one; the outputs are then rendered.
+
+The [demo is online][todojs], to try out!
+
+[todojs]: https://mstksg.github.com/auto-examples/todo
+
 
 ### [life][]
 
