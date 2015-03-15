@@ -19,6 +19,9 @@
 -- persistance might be a useful demonstration of implicit serialiation,
 -- a part of it (and routing too) might be outside of the range of domain
 -- of `auto`...so these aren't really high-priority for now.
+--
+-- This is compiled and hosted online at:
+-- http://mstksg.github.io/auto-examples/todo
 
 module Main (main) where
 
@@ -124,7 +127,7 @@ main = do
 -- | Set up the "static" skeleton of the GUI that won't be updated.
 -- Returns a reference the todo list body and the footer with information.
 --
--- Admittedly pretty ugly, but there's no real "logic" here, only view
+-- Admittedly pretty hairy, but there's no real "logic" here, only view
 -- manipulation.  If we had a high-level DOM manipulation library for ghcjs
 -- this could probably just be half as long and much more clean.
 renderInitial :: Document

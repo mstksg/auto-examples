@@ -16,6 +16,9 @@
 --
 -- Supports adding, modifying, "pruning", completing, uncompleting,
 -- deleting single or all tasks at a time.
+--
+-- Javascript client is online at:
+-- http://mstksg.github.io/auto-examples/todo
 
 module Todo (TaskID, TodoInp(..), TaskCmd(..), Task(..), todoApp) where
 
@@ -62,7 +65,8 @@ todoApp = proc inpEvt -> do
         --
         -- basically applying `M.key` to `tMap`, like `arr M.key`.  But we
         -- use `arrD` instead of `arr` to provide a fixed point for our
-        -- recrusive bindings.  See "Recursive.hs" docs for more info.
+        -- recrusive bindings.  See the tutorial for more detail:
+        -- https://github.com/mstksg/auto/blob/master/tutorial/tutorial.md
         ids <- arrD M.keys [] -< tMap
 
         -- "forking" the blip stream
@@ -125,7 +129,8 @@ taskMap = gatherMany (const taskAuto)
     -- `f` for each input, with the current task.  Use `Nothing` to signal
     -- that it wants to delete itself.
     taskAuto = accum f (Just (Task Nothing False))
-    -- `f` updates our task with incoming commands
+    -- `f` updates our task with incoming commands; outputting `Nothing`
+    -- will end itself.
     f :: Maybe Task -> TaskCmd -> Maybe Task
     f _        TEDelete       = Nothing
     f (Just t) (TEComplete c) = Just (t { taskCompleted = c        })
