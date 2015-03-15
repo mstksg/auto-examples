@@ -58,21 +58,28 @@ instance Serialize Task
 todoApp :: MonadFix m => Auto m TodoInp (Map TaskID Task)
 todoApp = proc inpEvt -> do
 
-        -- the previous taskMap
-    rec ids <- arrD M.keys [] -< tMap
+    rec -- the id's of all the tasks currently stored
+        --
+        -- basically applying `M.key` to `tMap`, like `arr M.key`.  But we
+        -- use `arrD` instead of `arr` to provide a fixed point for our
+        -- recrusive bindings.  See "Recursive.hs" docs for more info.
+        ids <- arrD M.keys [] -< tMap
 
         -- "forking" the blip stream
         -- * one blip stream for new task blips, filtering on isAdd
-        newTaskB <- perBlip newTask . emitJusts isAdd -< inpEvt
+        newTaskB <- perBlip newTask . emitJusts getAddEvts -< inpEvt
         -- * one blip stream for single task mod blips, filtering on validTE
-        modTaskB <- emitJusts validTE                 -< (ids, inpEvt)
+        modTaskB <- emitJusts validTE                      -< (ids, inpEvt)
         -- * one blip stream for "mass" tasks, `IEAll`
-        allTaskB <- emitJusts getMass                 -< (ids, inpEvt)
+        allTaskB <- emitJusts getMass                      -< (ids, inpEvt)
 
-        -- re-join them back together with `mergeL`
-        let singleB :: Blip (TaskID, TaskCmd)
+        let -- re-join them back together with `mergeL`
+
+            -- merge blip streams for single-task events
+            singleB :: Blip (TaskID, TaskCmd)
             singleB = newTaskB `mergeL` modTaskB
 
+            -- merge blip streams for all-task events
             allEvtB :: Blip (Map TaskID TaskCmd)
             allEvtB = allTaskB `mergeL` (uncurry M.singleton <$> singleB)
 
@@ -87,6 +94,9 @@ todoApp = proc inpEvt -> do
     validTE _                                 = Nothing
     getMass (ids, IEAll te)    = Just (M.fromList (map (,te) ids))
     getMass _                  = Nothing
+    getAddEvts (IEAdd dscr)    = Just edscr
+    getAddEvts _               = Nothing
+
 
     -- Used to increment id's and create a new task
     newTask = proc descr -> do
@@ -115,15 +125,12 @@ taskMap = gatherMany (const taskAuto)
     -- `f` for each input, with the current task.  Use `Nothing` to signal
     -- that it wants to delete itself.
     taskAuto = accum f (Just (Task Nothing False))
+    -- `f` updates our task with incoming commands
+    f :: Maybe Task -> TaskCmd -> Maybe Task
     f _        TEDelete       = Nothing
     f (Just t) (TEComplete c) = Just (t { taskCompleted = c        })
     f (Just t) (TEModify str) = Just (t { taskDescr     = Just str })
     f (Just t) TEPrune        | taskCompleted t = Nothing
                               | otherwise       = Just t
     f t        _              = t
-
--- | Used with `emitJusts` to filter the stream on "adding" blips
-isAdd :: TodoInp -> Maybe String
-isAdd (IEAdd descr) = Just descr
-isAdd _             = Nothing
 
