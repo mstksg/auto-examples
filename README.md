@@ -30,6 +30,8 @@ $ cabal sandbox add-source ../auto
 
 # install
 $ cabal install
+# ghcjs examples, if desired
+$ cabal install --ghcjs
 ```
 
 And the executables should all be in `./.cabal-sandbox/bin` of the
