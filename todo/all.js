@@ -48457,7 +48457,7 @@ function h$$B7()
   return h$ap_1_1_fast();
 };
 var h$$Mw = h$strta("meta");
-var h$$Mx = h$strta("<p>Double-click to edit a todo<\/p><p>Written by <a href='http:\/\/jle.im'>Justin Le<\/a> as an <a href='https:\/\/github.com\/mstksg\/auto'>auto<\/a> demo (<a href='https:\/\/github.com\/mstksg\/auto-examples\/blob\/master\/src\/TodoJS.hs'>source<\/a>)<\/p><p>Spec, templates, and assets from <a href='http:\/\/todomvc.com\/'>TodoMVC<\/a><\/p>");
+var h$$Mx = h$strta("<p>Double-click to edit a todo<\/p><p>Written by <a href='http:\/\/jle.im'>Justin Le<\/a> as an <a href='https:\/\/github.com\/mstksg\/auto'>auto<\/a> demo (source: <a href='https:\/\/github.com\/mstksg\/auto-examples\/blob\/master\/src\/Todo.hs'>logic<\/a> <a href='https:\/\/github.com\/mstksg\/auto-examples\/blob\/master\/src\/TodoJS.hs'>view<\/a>)<\/p><p>Spec, templates, and assets from <a href='http:\/\/todomvc.com\/'>TodoMVC<\/a><\/p>");
 var h$$My = h$strta("info");
 var h$$Mz = h$strta("footer");
 var h$$MA = h$strta("main");
@@ -53040,7 +53040,7 @@ var h$$NY = h$strta("toggle-all");
 var h$$NZ = h$strta("checkbox");
 var h$$N0 = h$strta("type");
 var h$$N1 = h$strta("input");
-var h$$N2 = h$strta("Pattern match failure in do expression at src\/TodoJS.hs:359:5-18");
+var h$$N2 = h$strta("Pattern match failure in do expression at src\/TodoJS.hs:360:5-18");
 var h$$mainZCMain_pA = h$str(") is outside of enumeration's range (0,");
 function h$$HP()
 {
