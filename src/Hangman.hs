@@ -238,6 +238,7 @@ game wordlist goal = proc comm -> do
     mkNewB <- onJusts -< mkNew
 
     -- tags each new puzzle with a random string pulled from the word list
+    -- sequence :: Monad m => (a, m b) -> m (a, b)
     newPuzzB <- arrMB (\x -> sequence (x, uniform wordlist)) -< mkNewB
 
         -- newSwap emits a new `Swap` when `newPuzzB` emits
