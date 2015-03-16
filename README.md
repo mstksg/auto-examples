@@ -77,6 +77,12 @@ combinator, we transform a normal auto representing a logging process into an
 auto that automatically, implicitly, and constantly serializes itself...and
 automatically re-loads the saved state on the program initialization.
 
+Demonstrates also `resetFrom`, which is a basic switcher that allows an `Auto`
+to "reset" itself through an output blip stream.
+
+Also heavy usage of "blip stream" logic and intervals to sort out and manage
+the stream of inputs into streams that do things and create outputs.
+
 ### [chatbot][]
 
 [chatbot]: https://github.com/mstksg/auto-examples/blob/master/src/Chatbot.hs

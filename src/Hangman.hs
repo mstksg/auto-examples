@@ -3,6 +3,33 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE TupleSections #-}
 
+-- | "Hangman"
+--
+-- A fully featured command-line hangman game.  Made to demonstrate many
+-- high-level features, like the composition of locally stateful autos with
+-- proc-do notation, implicit serializability, switching, and usage of
+-- `interact`.  Lays out some pretty common idioms and displays some design
+-- methodology.
+--
+-- Note the lack of a global "hangman state".  All the components of the
+-- state --- the current word, the wrong guesses, the player scores, etc.
+-- --- are isolated from each other and only interact when needed.  The
+-- `Puzzle` type only contains information for the console to display the
+-- current "output" of the puzzle --- it doesn't even contain the solution.
+--
+-- Also, note the principled reading and saving of the game auto using
+-- `readAuto` and `writeAuto`.
+--
+-- Demonstrates as well some high concepts like building an `Auto` over
+-- a monad like `Rand`, and then "sealing away" the randomness.
+-- `hangmanRandom` uses an underlying monad to generate new words, and
+-- `hangman` "seals away" the randomness of the underlying monad; the
+-- entropy is self-contained only in the parts that need it.
+--
+-- Also uses `interactAuto` as a high level wrapper to "run" an `Auto` on
+-- stdin. The logic for a simple todo app.  It is structured so that its
+-- "input" are commands, and its output is a map of tasks to task id's.
+
 
 module Main (main) where
 
