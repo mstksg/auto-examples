@@ -13,26 +13,21 @@ the *auto* library, and its main goals and philosophies :)
 
 [arm]: https://github.com/mstksg/auto/blob/master/README.md
 
-As things are still in development, here is the best way to install and run
-these:
+Installation instructions:
 
-```bash
-# clone the in-development branch of the auto library
-$ git clone https://github.com/mstksg/auto -b develop
-
+~~~bash
 # clone this examples repository
 $ git clone https://github.com/mstksg/auto-examples
 $ cd auto-examples
 
 # set up the sandbox, pointing to the library source on-disk
 $ cabal sandbox init
-$ cabal sandbox add-source ../auto
 
 # install
 $ cabal install
 # ghcjs examples, if desired
 $ cabal install --ghcjs
-```
+~~~
 
 And the executables should all be in `./.cabal-sandbox/bin` of the
 `auto-examples` dir.

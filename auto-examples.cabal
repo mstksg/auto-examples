@@ -141,6 +141,8 @@ executable survive
                      , ansi-terminal
                      , transformers
                      , containers
+                     , cereal
+                     , lens
                      , linear
                      , profunctors
                      , containers
