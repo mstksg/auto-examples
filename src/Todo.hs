@@ -65,7 +65,7 @@ todoApp = proc inpEvt -> do
         --
         -- basically applying `M.key` to `tMap`, like `arr M.key`.  But we
         -- use `arrD` instead of `arr` to provide a fixed point for our
-        -- recrusive bindings.  See the tutorial for more detail:
+        -- recursive bindings.  See the tutorial for more detail:
         -- https://github.com/mstksg/auto/blob/master/tutorial/tutorial.md
         ids <- arrD M.keys [] -< tMap
 
@@ -73,9 +73,9 @@ todoApp = proc inpEvt -> do
         -- * one blip stream for new task blips, filtering on isAdd
         newTaskB <- perBlip newTask . emitJusts getAddEvts -< inpEvt
         -- * one blip stream for single task mod blips, filtering on validTE
-        modTaskB <- emitJusts validTE                      -< (ids, inpEvt)
+        modTaskB <-                   emitJusts validTE    -< (ids, inpEvt)
         -- * one blip stream for "mass" tasks, `IEAll`
-        allTaskB <- emitJusts getMass                      -< (ids, inpEvt)
+        allTaskB <-                   emitJusts getMass    -< (ids, inpEvt)
 
         let -- re-join them back together with `mergeL`
 

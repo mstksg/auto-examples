@@ -54,11 +54,19 @@ puzzle --- it doesn't even contain the solution.
 Also, note the principled reading and saving of the game auto using `readAuto`
 and `writeAuto`.
 
+Demonstrates as well some high concepts like building an `Auto` over a monad
+like `Rand`, and then "sealing away" the randomness.  `hangmanRandom` uses an
+underlying monad to generate new words, and `hangman` "seals away" the
+randomness of the underlying monad; the entropy is self-contained only in the
+parts that need it.
+
+Also uses `interactAuto` as a high level wrapper to "run" an `Auto` on stdin.
+
 Admittedly it's a lot "longer" in terms of lines of code than the simple
 explicit-state-passing version (even without the gratuitous whitespace and
-commenting).  Part of this is because Hangman is pretty simple.  But I really
-feel like the whole thing "reads" well, and is in a more understandable
-high-level declarative/denotative style than such an approach.
+commenting).  Part of this is because the idea of Hangman is pretty simple.
+But I really feel like the whole thing "reads" well, and is in a more
+understandable high-level declarative/denotative style than such an approach.
 
 ### [logger][]
 

@@ -78,7 +78,7 @@ dirToV2 dir = case dir of
 
 bomb :: Monad m => Dir -> Interval m EntityInput EntityOutput
 bomb dir = proc _ -> do
-    motion <- fromInterval zero . onFor 5 . pure (dirToV2 dir) -< ()
+    motion <- fromInterval zero . onFor 6 . pure (dirToV2 dir) -< ()
     onFor 10 . (id &&& never) -< (motion, EBomb)
 
 
@@ -86,7 +86,7 @@ wall :: Monad m => Interval m EntityInput EntityOutput
 wall = toOn . (id &&& never) . pure (zero , EWall)
 
 player :: Monad m => Interval m ((Cmd, Point), EntityMap) EntityOutput
-player = proc ((inp, pos), world) -> do
+player = proc ((inp, _), _) -> do
     move <- fromBlipsWith zero dirToV2 . emitJusts (preview _CMove) -< inp
     atkB <- emitJusts (preview _CAtk)  -< inp
     toOn -< ((move, EPlayer), uncurry toResp <$> atkB)
@@ -97,8 +97,6 @@ player = proc ((inp, pos), world) -> do
                  Bow   -> ERShoot
                  Bomb  -> ERBomb
                  Wall  -> ERBuild
-    move x0 dx = clamp (x0 + dx)
-    clamp = liftA3 (\mn mx -> max mn . min mx) (V2 0 0) mapSize
 
 locomotor :: Monad m
           => V2 Int
@@ -109,13 +107,16 @@ locomotor p0 entA = proc inp@(_, world) -> do
     pos  <- fst <$> accum f (p0, False) -< (world, maybe zero (fst.fst) outp)
     id -< set (_1._1) pos <$> outp
   where
-    f (p,mvd) (world, motion) = (restrict (p ^+^ motion), True)
+    f (p, mvd) (world, motion) = (restrict (p ^+^ motion), True)
       where
         world' = IM.mapMaybe getBlockers world
         restrict p' | not mvd          = p'
-                    | p' `elem` world' = p
-                    | otherwise        = p'
+                    | p' `elem` world' = clamp' p
+                    | otherwise        = clamp' p'
+        clamp' | clamp p == p = clamp
+               | otherwise    = id
 
+    clamp = liftA3 (\mn mx -> max mn . min mx) (V2 0 0) mapSize
     getBlockers (pos, ent) | isBlocking ent = Just pos
                            | otherwise      = Nothing
 

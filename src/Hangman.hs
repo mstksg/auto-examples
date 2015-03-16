@@ -127,10 +127,11 @@ hangman :: Monad m
         --        ^       ^
         --        |       +-- Command line output.  Nothing means quit.
         --        +-- Command line input
--- hangmanRandom runs under `RandT`/a `MonadRandom`, so we "seal away" the
--- randomness with `sealRandom`; see "Control.Auto.Random" documentation
--- for more information, and also `sealState`.  Lets the random parts run
--- by themselves and become inaccessible to the outside world.
+-- hangmanRandom runs under `RandT`/a `MonadRandom` go pull new words, so
+-- we "seal away" the randomness with `sealRandom`; see
+-- "Control.Auto.Random" documentation for more information, and also
+-- `sealState`.  Lets the random parts run by themselves and become
+-- inaccessible to the outside world.
 hangman wordlist g0 = sealRandom_ hangmanRandom g1
   where
     firstGoal :: String
