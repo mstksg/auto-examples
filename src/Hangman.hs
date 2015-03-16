@@ -1,23 +1,28 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE Arrows #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE TupleSections #-}
+
 
 module Main (main) where
 
 import Control.Auto
 import Control.Auto.Blip
-import Control.Auto.Process.Random
-import Control.Auto.Run
-import Data.Functor.Identity
-import Control.Auto.Serialize
-import Control.Exception hiding (mask)
-import Data.Foldable (mapM_)
+import Control.Auto.Effects
+import Control.Auto.Interval
 import Control.Auto.Switch
-import Control.Monad hiding (mapM_)
+import Control.Exception hiding  (mask)
+import Control.Monad hiding      (mapM_, sequence)
+import Control.Monad.Random
+import Control.Monad.Trans.State
 import Data.Char
+import Data.Foldable             (mapM_)
 import Data.List
 import Data.Maybe
-import Prelude hiding              ((.), id, mapM_)
-import System.Random
+import Data.Serialize
+import Data.Traversable          (sequence)
+import GHC.Generics
+import Prelude hiding            ((.), id, mapM_, sequence)
 
 {-# ANN Puzzle "HLint: ignore Use String" #-}
 {-# ANN game "HLint: ignore Use string literal" #-}
@@ -37,16 +42,20 @@ data HMCommand = Guess Char
 data Puzzle = Puzzle { puzzleString :: String   -- The "masked" string
                      , puzzleWrongs :: [Char]   -- List of wrong guesses
                      , puzzleStatus :: Status
-                     } deriving Show
+                     } deriving (Show, Generic)
 
 data Status = InProgress
             | Success String
             | Failure String
-            deriving Show
+            deriving (Show, Generic)
 
 data PuzzleOut = Puzz Puzzle Bool   -- return current puzzle; show score?
                | Swap Puzzle Puzzle -- old puzzle, new puzzle
-               deriving Show
+               deriving (Show, Generic)
+
+instance Serialize Puzzle
+instance Serialize Status
+instance Serialize PuzzleOut
 
 -- Config
 wordlistFP :: FilePath
@@ -76,7 +85,7 @@ main = do
     g        <- getStdGen
 
     -- Our game Auto; `hangman` with a wordlist and a starting seed
-    let gameAuto = hangman wordlist g :: Auto Identity String (Maybe String)
+    let gameAuto = hangman wordlist g :: Auto' String (Maybe String)
 
     -- Attempt to load the savefile
     loaded <- try (readAuto savegameFP gameAuto)
@@ -118,40 +127,51 @@ hangman :: Monad m
         --        ^       ^
         --        |       +-- Command line output.  Nothing means quit.
         --        +-- Command line input
-hangman wordlist g = proc inp -> do
-    -- Primitive command parser
-    let comm = case words inp of
-                 "@help"   :_      -> Just Help
-                 "@quit"   :_      -> Just Quit
-                 "@display":_      -> Just (HM Display)
-                 "@solve"  :ws     -> Just . HM . Solve
-                                    . map toLower . unwords $ ws
-                 "@new"    :_      -> Just (HM New)
-                 [[c]] | isAlpha c -> Just . HM . Guess . toLower $ c
-                 _                 -> Nothing
+-- hangmanRandom runs under `RandT`/a `MonadRandom`, so we "seal away" the
+-- randomness with `sealRandom`; see "Control.Auto.Random" documentation
+-- for more information, and also `sealState`.  Lets the random parts run
+-- by themselves and become inaccessible to the outside world.
+hangman wordlist g0 = sealRandom_ hangmanRandom g1
+  where
+    firstGoal :: String
+    g1 :: StdGen
+    (firstGoal, g1) = runRand (uniform wordlist) g0
 
-    case comm of
-      -- return is Just; mzero is Nothing
-      Nothing         -> id -< return "Unknown command.  @help for help."
-      Just Help       -> id -< return helpmsg
-      Just Quit       -> id -< mzero
-      Just (HM hcomm) -> do
-        -- Make new random strings, in case the puzzle needs it
-        newstr <- stdRands (pick wordlist) g -< ()
+    -- the whole thing is run over `MonadRandom`, like `Rand g`.  This
+    -- allows anyone to grab a "random word" from thin air using `effect`
+    -- or `arrM`.
+    hangmanRandom :: MonadRandom m => Auto m String (Maybe String)
+    hangmanRandom = proc inp -> do
 
-        -- Puzzle, with the command and a fresh string if needed.
-        --   `switchFromF` basically creates a new "game" with a new word
-        --   every time the internal wire emits a blip containing a new
-        --   word.
-        puzz   <- switchFromF game initialize -< (hcomm, newstr)
+      -- Primitive command parser
+      let comm = case words inp of
+                   "@help"   :_      -> Just Help
+                   "@quit"   :_      -> Just Quit
+                   "@display":_      -> Just (HM Display)
+                   "@solve"  :ws     -> Just . HM . Solve
+                                      . map toLower . unwords $ ws
+                   "@new"    :_      -> Just (HM New)
+                   [[c]] | isAlpha c -> Just . HM . Guess . toLower $ c
+                   _                 -> Nothing
 
-        -- get wins and losses
-        swaps  <- emitOn isSwap              -< puzz
-        losses <- countB . filterB isFailure -< swaps
-        wins   <- countB . filterB isSuccess -< swaps
+      case comm of
+        Nothing         -> id -< Just "Unknown command.  @help for help."
+        Just Help       -> id -< Just helpmsg
+        Just Quit       -> id -< Nothing
+        Just (HM hcomm) -> do
+          -- Puzzle, with the command. `switchFromF` basically creates
+          --   a new "game" with a new word every time the internal `Auto`
+          --   emits a blip containing a new word.  the initial game is
+          --   `game wordlist firstgoal`.
+          puzz   <- switchFromF (game wordlist)
+                                (game wordlist firstGoal) -< hcomm
 
-        -- display result
-        id      -< return $ case puzz of
+          -- get wins and losses
+          losses <- countB . emitOn isFailure -< puzz
+          wins   <- countB . emitOn isSuccess -< puzz
+
+          -- display result
+          id      -< Just $ case puzz of
                               -- just the puzzle
                               Puzz p False -> display p
                               -- puzzle + score
@@ -165,77 +185,72 @@ hangman wordlist g = proc inp -> do
                                            <> "\n"
                                            <> display p1
 
--- initial game...only here to "start" the real `game` auto.  All it does
---   is emit a `blip` with a word, which causes `switchFromF` to create
---   a new game with that word.
-initialize :: Monad m
-           => Auto m (HMCommand, String) (PuzzleOut, Blip String)
-initialize = proc (_, newstr) -> do
-    new <- immediately -< newstr
-    id   -< (Puzz (blankPuzzle newstr) True, new)
-
 -- A single game with a single word.  Takes in commands and outputs
---   `PuzzleOut`s...or a blip containing the next mystery word.  `switchF`
---   takes this blip and creates a fresh `game` out of it, starting the
---   cycle all over.
-game :: Monad m
-     => String    -- ^ The mystery word(s)
-     -> Auto m (HMCommand, String) (PuzzleOut, Blip String)
-     --         ^          ^        ^          ^
-     --         |          |        |          +-- Event signaling new game, with new word
-     --         |          |        +-- Output puzzle (or puzzle swap)
-     --         |          +-- New random word, if needed to make a new game
-     --         +-- Hangman command
-game str = proc (comm, newstr) -> do
+--   `PuzzleOut`s...with a blip stream containing the next mystery word.
+--   `switchF` takes this blip and creates a fresh `game` out of it,
+--   starting the cycle all over.
+game :: MonadRandom m
+     => [String]      -- ^ wordlist
+     -> String        -- ^ new mystery word
+     -> Auto m HMCommand (PuzzleOut, Blip String)
+     --        ^          ^          ^
+     --        |          |          +-- blip stream signaling new game
+     --        |          +-- Output puzzle (or puzzle swap)
+     --        |
+     --        +-- Hangman command
+game wordlist goal = proc comm -> do
     -- get correct guesses, incorrect guesses, and solves
     let (corr, incorr, solve) = case comm of
-            Guess c | c `elem` str -> (Just c , Nothing , False)
-                    | otherwise    -> (Nothing, Just c  , False)
-            Solve s | s == str     -> (Nothing, Nothing , True )
-                    | otherwise    -> (Nothing, Just '*', False)
-            _                      -> (Nothing, Nothing , False)
+            Guess c | c `elem` goal -> (Just c , Nothing , False)
+                    | otherwise     -> (Nothing, Just c  , False)
+            Solve s | s == goal     -> (Nothing, Nothing , True )
+                    | otherwise     -> (Nothing, Just '*', False)
+            _                       -> (Nothing, Nothing , False)
 
     -- collect all correct and wrong guesses
-    rights <- accum (++) [' ']         -< maybeToList corr
+    rights <- mappendFrom [' ']        -< maybeToList corr
     wrongs <- reverse <$> accum add [] -< incorr
 
         -- is it solved?
-    let solved = solve || all (`elem` rights) str
+    let solved = solve || all (`elem` rights) goal
 
         -- did the player run out of guesses?
         failed = length wrongs > guesses
 
         -- make status
-        status | solved    = Success str
-               | failed    = Failure str
+        status | solved    = Success goal
+               | failed    = Failure goal
                | otherwise = InProgress
 
         -- the puzzle object
-        puzz   = Puzzle { puzzleString = map (mask rights) str
+        puzz   = Puzzle { puzzleString = map (mask rights) goal
                         , puzzleWrongs = wrongs
                         , puzzleStatus = status
                         }
 
         -- Just p if there should be a new puzzle (from @new or game over)
         mkNew  = case comm of
-                   New -> Just (puzz { puzzleStatus = Failure str })
+                   New -> Just (puzz { puzzleStatus = Failure goal })
                    _   | solved || failed -> Just puzz
                        | otherwise        -> Nothing
 
-    case mkNew of
-      -- new puzzle desired
-      Just p' -> do
-        let newPuzz = blankPuzzle newstr
-        new <- immediately -< newstr
-        id   -< (Swap p' newPuzz, new)
+    -- emits whenever a new puzzle is desired
+    mkNewB <- onJusts -< mkNew
 
-      -- business as usual
-      Nothing -> do
-        -- show the score if @display was the command
-        let showScore = isDisplay comm
+    -- tags each new puzzle with a random string pulled from the word list
+    newPuzzB <- arrMB (\x -> sequence (x, uniform wordlist)) -< mkNewB
 
-        new <- never -< ()
-        id   -< (Puzz puzz showScore, new)
+        -- newSwap emits a new `Swap` when `newPuzzB` emits
+    let newSwapB = uncurry Swap . second blankPuzzle <$> newPuzzB
+
+    -- `swapper` is an Interval that is off a first, and then on (as Just)
+    -- as soon as `newSwap` emits with a new swapper.
+    swapper  <- hold -< newSwapB
+
+        -- puzzOut: what to display if things are to continue as normal
+    let puzzOut = Puzz puzz (isDisplay comm)
+
+    id -< (fromMaybe puzzOut swapper, snd <$> newPuzzB)
 
   where
     -- add a unique element to a list.  but don't check for uniqueness if
@@ -245,12 +260,13 @@ game str = proc (comm, newstr) -> do
                  Just c | c `notElem` ws -> c  :ws
                  _                       -> ws
 
--- pick random element from a list
-pick :: [a] -> StdGen -> (a, StdGen)
-pick [] _ = error "pick: Cannot pick from empty list."
-pick xs g = (xs !! n, g')
-  where
-    (n, g') = randomR (0, length xs - 1) g
+-- Utility function to "seal away" the randomness of an `Auto (RandT g m)
+-- a b` into a normal `Auto m a b`, with a given initial seed.  The
+-- randomness is no longer accessible from the outside.
+sealRandom_ :: (RandomGen g, Monad m)
+            => Auto (RandT g m) a b
+            -> g -> Auto m a b
+sealRandom_ = sealState_ . hoistA (StateT . runRandT)
 
 -- new blank puzzle
 blankPuzzle :: String -> Puzzle
@@ -279,11 +295,6 @@ display (Puzzle str ws sts) = pre
 displayScore :: (Int, Int) -> String
 displayScore (w, l) = unwords ["Wins:", show w, "|", "Losses:", show l]
 
--- because no lens
-isSwap :: PuzzleOut -> Bool
-isSwap (Swap _ _)  = True
-isSwap _           = False
-
 isFailure :: PuzzleOut -> Bool
 isFailure (Swap (Puzzle _ _ (Failure _)) _) = True
 isFailure _                                 = False
@@ -295,3 +306,4 @@ isSuccess _                                 = False
 isDisplay :: HMCommand -> Bool
 isDisplay Display = True
 isDisplay _       = False
+

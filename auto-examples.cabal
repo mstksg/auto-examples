@@ -25,6 +25,8 @@ executable hangman
                      , auto
                      , random
                      , transformers
+                     , MonadRandom
+                     , cereal
   hs-source-dirs:      src
   ghc-options:         -O2 -Wall
   default-language:    Haskell2010

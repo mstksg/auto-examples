@@ -98,7 +98,7 @@ todoApp = proc inpEvt -> do
     validTE _                                 = Nothing
     getMass (ids, IEAll te)    = Just (M.fromList (map (,te) ids))
     getMass _                  = Nothing
-    getAddEvts (IEAdd dscr)    = Just edscr
+    getAddEvts (IEAdd dscr)    = Just dscr
     getAddEvts _               = Nothing
 
 
