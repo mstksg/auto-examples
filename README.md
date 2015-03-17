@@ -254,6 +254,10 @@ It demonstrates the architecture of a simple app:  Your app itself is an
 `Auto`, and your GUI elements/command line parsers simply drop inputs to the
 `Auto` in a queue to be processed one-by-one; the outputs are then rendered.
 
+The app is structured so that the input goes in as a fork of blip streams,
+which all affect their own part of the program...at the end, their results are
+all recombined together to the big picture.
+
 The [demo is online][todojs], to try out!
 
 [todojs]: https://mstksg.github.com/auto-examples/todo
