@@ -172,7 +172,7 @@ The second demonstration is a power-of-twos series, using the definition `z_n
 = z_(n-1) + z_(n-1)`.   Not really anything special, but it's trippy to see
 a variable used in a recursive definition of itself!
 
-The third is a neat implementation of the [PI controller algorithm][pid] in
+The third is a neat implementation of the [PID controller algorithm][pid] in
 order to tune an opaque system to a desired setpoint/goal response.
 
 [pid]: http://en.wikipedia.org/wiki/PID_controller
@@ -184,52 +184,55 @@ recursive bindings in a way that makes sense.
 The main algorithm is this:
 
 ~~~haskell
-rec let err = goal - currResponse
+rec let err        = target - response
 
-    errIntegral  <- sumFrom 0  -< err
+    cumulativeSum <- sumFrom 0 -< err
+    changes       <- deltas    -< err
 
-    let p = kp * err
-        i = ki * errIntegral
+    let adjustment = kp * err
+                   + ki * cumulativeSum
+                   + kd * fromMaybe 0 changes
 
-    control      <- sumFrom c0 -< p + i
-    currResponse <- system     -< control
+    control  <- sumFrom c0 -< adjustment
+
+    response <- blackbox   -< control
 ~~~
 
 This looks a lot like how you would describe the algorithm from a high level.
-"The error is the difference between the goal and the current response, and
-the integral of the error is the cumulative sum of the errors.  The *p*
-contribution is `kp` times the current error; the *i* contribution is `ki`
-times the error integral.  The new control value is the cumulative sum of the
-*p* and *i* contributions.  The response is what happens when you feed the
-control value to the system."
+"The error is the difference between the goal and the response, and the
+cumulative sum is the cumulative sum of the errors.  The changes is the deltas
+between `err`s.  The adjustment is each term multiplied by a constant...the
+control is the cumulative sum of the adjustments, and the response is the
+result of feeding the control to the black box system.
 
 This actually doesn't work initially...because...how would you get it started?
 Everything depends on everything else.
 
 The key is that we need to have one value that can get its "first value"
-without any other input.  That is our "key", our "base case", which allows for
-the knot-tying to work.
-
-We can introduce that in two ways:
+without any other input.  That is our "base case", which allows for the
+knot-tying to work.
 
 ~~~haskell
-control      <- sumFromD c0       -< p + i
+control      <- sumFromD c0       -< adjustment
 ~~~
 
 `sumFromD` is like `sumFrom`, except it outputs `c0` on its first step, before
 adding anything.  Now, `control` is a value that doesn't "need anything" to
 get its first/immediate value, so everything works!
 
+Alternatively, we can also:
+
 ~~~haskell
 currResponse <- system . delay c0 -< control
 ~~~
 
 `delay` is like `id`, except it outputs `c0` on its first step (and delays
-everything by one).  Again, the same goal is reached, and either of these
-fixes allow for the whole thing to work.
+everything by one).  It can output `c0` before receiving anything.  Again, the
+same goal is reached, and either of these fixes allow for the whole thing to
+work.
 
-So yeah, this example is intended to be a nice reference sheet when working
-with recursive bindings.
+This example is intended to be a nice reference sheet when working with
+recursive bindings.
 
 ### [todo][]
 

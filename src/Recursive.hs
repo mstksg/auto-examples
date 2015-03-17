@@ -4,14 +4,15 @@ module Main (main) where
 
 import Control.Auto
 import Control.Auto.Process
+import Data.Maybe (fromMaybe)
 import Control.Auto.Time
 import Control.Auto.Run
 import Control.Monad.Fix
 import Prelude hiding ((.), id)
 
--- The Fibonacci sequence, implemented using `delayN`.  In this, `z` is
---   `x + y`, where `x` is `z` delayed by two steps, and `y` is `z` delayed
---   by one step.
+-- | The Fibonacci sequence, implemented using `delayN`.  In this, `z` is
+-- `x + y`, where `x` is `z` delayed by two steps, and `y` is `z` delayed
+-- by one step.
 --
 -- In mathy terms, this means: z_n = z_(n-2) + z_(n-1).
 --
@@ -21,6 +22,7 @@ import Prelude hiding ((.), id)
 --
 -- `delayN n x` outputs `x` for `n` of the first steps, then outputs
 -- whatever it receives, lagging behind `n` steps.
+--
 fib :: MonadFix m => Auto m a Int
 fib = proc _ -> do
     rec x <- (delayN 2) 1 -< z      -- z_(n-2)
@@ -28,9 +30,9 @@ fib = proc _ -> do
         let z = x + y               -- z_n
     id -< x
 
--- An exponential series: powers of 2.  `x + x` is fed to a delayed version
---   of itself.  That is, `x` starts at 1; the next value is `1 + 1`, 2;
---   the next value is `2 + 2`, 4, etc.
+-- | An exponential series: powers of 2.  `x + x` is fed to a delayed
+-- version of itself.  That is, `x` starts at 1; the next value is `1 + 1`,
+-- 2; the next value is `2 + 2`, 4, etc.
 --
 -- In mathy terms, this algorithm is basically: z_n = z_(n-1) + z_(n-1).
 expo :: MonadFix m => Auto m a Int
@@ -38,74 +40,86 @@ expo = proc _ -> do
     rec x <- delay 1 -< x + x       -- z_n = z_(n-1) + z_(n-1)
     id -< x
 
--- An example from real life.  A `piLoop` is a feedback controller.  It
---   tries to get a "machine" to output a "goal", by feeding it a "control"
---   value.  The control value (like, say, an electric current) goes to the
---   machine (for example, a heating unit) to produce the "response" (for
---   example, a temperature reading).  The goal is to find the appropriate
---   control value to create the desired response.
+-- | Real-life example; a "pid" controller is a feedback controller; when
+-- you have a black box system with input and output, and you want to get
+-- the output to a certain target by varying a control value.  You don't
+-- know what control corresponds to what output, so you have to "search"
+-- for it.  People use this for things like figuring out how much power to
+-- feed to a heater to make the room a given temperature.
 --
--- In the "PI" algorithm, the control is adjusted at every step by adding
---   together a number proportional to the current error (the "p") and
---   a number proportional to the sum of all errors "so far" (the "i",
---   integral).  We define "error" as the difference between the goal
---   response and the current response.
+-- PID works by starting with an initial guess, and at every step,
+-- adjusting it slightly.  It adjusts it by the current error (target minus
+-- current response), the cumulative error, and the consecutive
+-- differences between the errors.
 --
--- Note the use of `sumFromD`, instead of `sumFrom`.  This means that the
---   "first result" will simply be the initial accumulator value, `c0`.  It
---   is this fixed first-result that allows the knot-tying and
---   fixpoint-finding magic to work.  In a recursive block, there has to be
---   at least *one* value, somewhere, that doesn't depend on anything "now"
---   to get its first output.  `sumFromD` is that key in this situation, as
---   its first output does not depend on anything else.
+-- See http://en.wikipedia.org/wiki/PID_controller
 --
--- Note that this "key" doesn't have to necessarily be for `currResponse`;
---   you can also move this key value somewhere else:
+-- This algorithm here is implemented by just "defining" these concepts,
+-- recursively, and how they are related to each other.  Like a graph or
+-- network.  Just...*state* the relationships, and the auto figures out how
+-- to make them happen.  No iterative loops, no keeping track of state,
+-- etc.
 --
--- > control      <- sumFrom c0        -< p + i
--- > currResponse <- system . delay c0 -< control
+-- Note that here we use `sumFromD` for the control, instead of `sumFrom`.
+-- That's because for recursive bindings like these, we need at least one
+-- `Auto` to be able to give a "initial response" without considering any
+-- input...just to "start off" the cycle.  `sumFromD` always outputs its
+-- initial accumulator first, so it doesn't need any input to output
+-- immediately; it begins the chain of evaluation.  This is an important
+-- key to remember when doing any recursive bindings --- you need at least
+-- one thing to "start" the chain of evaluation that doesn't depend
+-- immediately on anything else.
 --
--- `delay c0` is an `Auto` that outputs `c0` first...then the delayed
---   stream of its inputs.  So the first value of `currResponse` doesn't
---   depend on anything else; it`s just `system` fed `c0`.
+-- Anyways, here we represent a system as `System`, an `Auto` that takes
+-- stream of `Double`s as input and transforms it into a stream of
+-- `Double`s as output.  The `m` means that a `System IO` might do IO in
+-- the process of creating its ouputs, for instance.
 --
--- You can have either `control` or `currResponse` be your key value/base
---   case, and it should work the same.  However, if you have neither, then
---   you're going to be going into a `<<loop>>`.
-piLoop :: MonadFix m
-       => Double                -- ^ initial starting control
-       -> Double                -- ^ proportional scaling factor
-       -> Double                -- ^ integral scaling factor
-       -> Auto m Double Double
-piLoop c0 kp ki = proc goal -> do
-            -- the error: the goal response, minus the current response
-    rec let err = goal - currResponse
+type System m = Auto m Double Double
 
-        -- the sum of all the errors so far
-        errIntegral  <- sumFrom 0   -< err
+pid :: MonadFix m => Double -> (Double, Double, Double) -> System m -> System m
+pid c0 (kp, ki, kd) blackbox = proc target -> do
+    rec --  err :: Double
+        --  the difference of the response from the target
+        let err        = target - response
 
-            -- the p term is proportional to the error
-        let p = kp * err
-            -- the i term is proportional to the integral
-            i = ki * errIntegral
+        -- cumulativeSum :: Double
+        -- the cumulative sum of the errs
+        cumulativeSum <- sumFrom 0 -< err
 
-        -- the new control value, the accumulated sum of the p and i terms
-        control      <- sumFromD c0 -< p + i
+        -- changes :: Maybe Double
+        -- the consecutive differences of the errors, with 'Nothing' at first.
+        changes       <- deltas    -< err
 
-        -- currResponse, the response of the control applied to the system
-        currResponse <- system      -< control
+        --  adjustment :: Double
+        --  the adjustment term, from the PID algorithm
+        let adjustment = kp * err
+                       + ki * cumulativeSum
+                       + kd * fromMaybe 0 changes
 
-    id -< currResponse
-  where
-    -- a simple "black box" system...just fancy math and stuff.
-    system = arr (\x -> exp x + sin x * 10 + cosh x * 5)
+        -- the control input is the cumulative sum of the adjustments
+        -- sumFromD so that it can output its first value immediately (c0),
+        -- and begin the chain of recursive evaluation.
+        control  <- sumFromD c0 -< adjustment
+
+        -- the response of the system, feeding the control into the blackbox
+        response <- blackbox   -< control
+
+    id -< response
 
 main :: IO ()
 main = do
     putStrLn ">>> Fibs!"
-    print . fst . stepAutoN' 20 fib $ ()
+    print . evalAutoN' 20 fib $ ()
     putStrLn ">>> Expo!"
-    print . fst . stepAutoN' 20 expo $ ()
+    print . evalAutoN' 20 expo $ ()
     putStrLn ">>> PID!"
-    print . fst . stepAutoN' 20 (round <$> piLoop 0 0.01 0.005) $ 100
+    let blackbox = arr (\x -> exp x + sin x * 10 + cosh x * 5)
+    print . evalAutoN' 20 (round' <$> pid 0 (0.01, 0.005, 0.001) blackbox)
+                $ 100
     putStrLn "look at that convergence! beautiful!"
+  where
+    round' :: Double -> Integer
+    round' = round
+
+
