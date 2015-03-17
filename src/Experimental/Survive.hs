@@ -2,6 +2,7 @@
 {-# LANGUAGE Arrows #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE DeriveFunctor #-}
 
@@ -13,12 +14,13 @@ import Control.Auto.Blip.Internal
 import Control.Auto.Collection
 import Control.Auto.Core
 import Control.Auto.Interval
+import Control.Auto.Time
 import Control.Auto.Run
 import Control.Lens
 import Control.Monad                (unless, guard, mfilter)
 import Control.Monad.Fix
 import Data.Foldable
-import Data.IntMap.Strict           (IntMap, Key)
+import Data.IntMap                  (IntMap, Key)
 import Data.List                    (sortBy)
 import Data.Map.Strict              (Map)
 import Data.Maybe
@@ -31,27 +33,29 @@ import Linear
 import Prelude hiding               ((.), id, elem, any, sequence, concatMap, sum)
 import System.Console.ANSI
 import System.IO
-import qualified Data.IntMap.Strict as IM
+import qualified Data.IntMap        as IM
 import qualified Data.Map.Strict    as M
 
 data Dir = DUp | DRight | DDown | DLeft
          deriving (Show, Eq, Enum, Ord, Read, Generic)
 
 data Usable = Sword | Bow | Bomb | Wall
-            deriving (Show, Eq, Enum, Ord, Read)
+            deriving (Show, Eq, Enum, Ord, Read, Generic)
 
 data Item = Potion
-          deriving (Show, Eq, Enum, Ord, Read)
+          deriving (Show, Eq, Enum, Ord, Read, Generic)
 
 data Cmd = CMove Dir
-         | CAtk Usable Dir
+         | CAct Usable Dir
          | CUse Item
-         deriving (Show, Eq, Ord, Read)
+         | CNop
+         deriving (Show, Eq, Ord, Read, Generic)
 
 data EntResp = ERAtk Double Point
              | ERShoot Dir
              | ERBomb Dir
              | ERBuild Dir
+             | ERPlayer Point
              deriving (Show, Eq, Ord, Read, Generic)
 
 data EntComm = ECAtk Double
@@ -76,6 +80,9 @@ instance Serialize EntResp
 instance Serialize EntComm
 instance Serialize Dir
 instance Serialize Entity
+instance Serialize Cmd
+instance Serialize Item
+instance Serialize Usable
 
 instance Serialize a => Serialize (EntityInput a) where
     put (EI x p c w) = put x *> put p *> put c *> put w
@@ -91,6 +98,14 @@ instance Semigroup a => Semigroup (EntityInput a) where
 instance Monoid a => Monoid (EntityInput a) where
     mempty  = pure mempty
     mappend = liftA2 mappend
+
+instance Semigroup Cmd where
+    x <> _ = x
+
+instance Monoid Cmd where
+    mempty = CNop
+    mappend CNop x = x
+    mappend x    _ = x
 
 
 makePrisms ''Cmd
@@ -111,13 +126,13 @@ dirToV2 dir = case dir of
                 DDown  -> V2 0    (-1)
                 DLeft  -> V2 (-1) 0
 
-bomb :: Monad m => Dir -> Interval m (EntityInput ()) EntityOutput
+bomb :: Monad m => Dir -> Interval m (EntityInput a) EntityOutput
 bomb dir = proc _ -> do
     motion <- fromInterval zero . onFor 6 . pure (dirToV2 dir) -< ()
     onFor 10 -< ((motion, EBomb), [])
 
 
-wall :: Monad m => Interval m (EntityInput ()) EntityOutput
+wall :: Monad m => Interval m (EntityInput a) EntityOutput
 wall = proc ei -> do
     let damage = sumOf (eiComm . traverse . _2 . _ECAtk) ei
     die <- became (<= 0) . sumFrom 3 -< negate damage
@@ -130,14 +145,14 @@ player = proc (EI inp p _ world) -> do
 
     (atkMvB, moveB') <- splitB isAtkMv               -< (,(p, world)) <$> moveB
 
-    atkB             <- modifyBlips toResp
-                      . emitJusts (preview _CAtk)    -< inp
-    let allAtkB = atkB `mergeL` (ERAtk 1.0 . (+p) . fst <$> atkMvB)
+    actB             <- modifyBlips toResp
+                      . emitJusts (preview _CAct)    -< inp
+    let allActB = actB `mergeL` (ERAtk 1.0 . fst <$> atkMvB)
 
     move <- fromBlips zero -< fst <$> moveB'
-    allAtk <- fromBlipsWith [] (:[]) -< allAtkB
+    allAct <- fromBlipsWith [] (:[]) -< allActB
 
-    toOn -< ((move, EPlayer), allAtk)
+    toOn -< traceShow inp ((move, EPlayer), allAct)
   where
     isAtkMv :: (Point, (Point, EntityMap)) -> Bool
     isAtkMv (m,(p,em)) = any (\(p',e) -> p' == (p+m) && attackIt e) em
@@ -147,7 +162,7 @@ player = proc (EI inp p _ world) -> do
                      Bow   -> ERShoot d
                      Bomb  -> ERBomb d
                      Wall  -> ERBuild d
-    attackIt e =     case e of
+    attackIt e = case e of
                    EPlayer -> False
                    EWall   -> True
                    EBomb   -> False
@@ -180,44 +195,70 @@ locomotor p0 entA = proc inp@(EI _ _ _ world) -> do
                        EBomb   -> False
 
 game :: MonadFix m => Auto m Cmd GameMap
-game = proc inp -> do
-    rec let pInp = maybe (pure inp)
-                         (set eiData inp)
-                         (IM.lookup (-1) (IM.unionWith (<>) entInp attacks))
+game = fmap last . accelerateWith CNop 2 $ proc inp -> do
+    rec mkPlayer <- immediately -< [(zero,ERPlayer startPos)]
 
-        pOut@((pPos,pEnt), pResp) <- fromJust <$> locomotor startPos player -< pInp
+        entOuts <- dynMapF makeEntity (pure CNop) -< (allInp', newEntsB')
 
-        newEnts <- emitOn (not . null)          -< (pPos,) <$> pResp
+        let attacks = collectAttacks entOuts
+            entInp  = mkEntInp entOuts
+            allInp  = IM.unionWith (<>) entInp attacks
+            newEnts = toList entOuts >>= \((p,_),ers) -> map (p,) ers
 
-        attacks <- arr collectAttacks -< entOuts'
+        allInpD <- delay IM.empty -< allInp
 
-        entInp  <- arr mkEntInp -< fst <$> entOuts'
+        newEntsB <- lagBlips . emitOn (not . null) -< newEnts
 
-        entOuts <- dynMapF makeEntity (pure ()) -< (IM.unionWith (<>) entInp attacks, newEnts)
+        let allInp' = set (traverse . eiData) inp allInpD
+            newEntsB' = merge (<>) mkPlayer newEntsB
 
-        entOutsD <- delay IM.empty -< entOuts
-        let entOuts' = IM.insert (-1) pOut entOutsD
+
+    -- rec let pInp = maybe (pure inp)
+    --                      (set eiData inp)
+    --                      (IM.lookup (-1) allInpD)
+
+    --     pOut@((pPos,pEnt), pResp) <- fromJust <$> locomotor startPos player -< pInp
+
+    --     newEnts <- emitOn (not . null)          -< (pPos,) <$> pResp
+
+    --     -- attacks <- arr collectAttacks -< entOuts'
+
+    --     -- entInp  <- arrD mkEntInp IM.empty -< fst <$> entOuts'
+
+    --     entOuts <- dynMapF makeEntity (pure ()) -< (allInpD, newEnts)
+
+
+    --     let entOuts' = IM.insert (-1) pOut entOuts
+    --         attacks  = collectAttacks entOuts'
+    --         entInp   = mkEntInp entOuts'
+    --         allInp   = IM.unionWith (<>) entInp attacks
+
+    --     allInpD <- delay IM.empty -< allInp
+
+    --     -- entOutsD <- delay IM.empty -< entOuts
+    --     -- let entOuts' = IM.insert (-1) pOut entOutsD
 
 
     let entMap = M.fromListWith (<>)
                . IM.elems
                . fmap (second (:[]) . fst)
-               . IM.insert (-1) pOut
                $ entOuts
 
     id -< entMap
   where
-    mkEntInp :: IntMap (Point, Entity) -> IntMap (EntityInput ())
-    mkEntInp ents = (`IM.mapWithKey` ents) $ \i (p,_) ->
-                      (EI () p [] (IM.delete i ents))
+    mkEntInp :: IntMap ((Point, Entity), a) -> IntMap (EntityInput Cmd)
+    mkEntInp (fmap fst->ents) = (`IM.mapWithKey` ents) $ \i (p,_) ->
+                                  (EI CNop p [] (IM.delete i ents))
     makeEntity :: Monad m
                => (Point, EntResp)
-               -> Interval m (EntityInput ()) EntityOutput
-    makeEntity (pPos, er) = case er of
-                              ERBomb dir  -> locomotor placed (bomb dir)
-                              ERBuild dir -> locomotor placed wall
-                              _           -> off
-      where placed = place pPos er
+               -> Interval m (EntityInput Cmd) EntityOutput
+    makeEntity (p, er) = case er of
+                           ERPlayer p  -> locomotor placed player
+                           ERBomb dir  -> stretch 2 $ locomotor placed (bomb dir)
+                           ERBuild dir -> locomotor placed wall
+                           _           -> off
+      where placed = place p er
+
 
     place :: Point -> EntResp -> Point
     place p er = case er of
@@ -225,6 +266,7 @@ game = proc inp -> do
                    ERBomb  dir  -> p
                    ERBuild dir  -> p ^+^ dirToV2 dir
                    ERShoot dir  -> p ^+^ dirToV2 dir
+                   ERPlayer p'  -> p'
 
     collectAttacks :: Monoid a => IntMap EntityOutput -> IntMap (EntityInput a)
     collectAttacks ents = fmap (\as -> set eiComm as mempty) $
@@ -269,16 +311,17 @@ parseCmd = go Nothing
                     'k' -> (Blip (Just (CMove DUp   )) , go Nothing     )
                     'l' -> (Blip (Just (CMove DRight)) , go Nothing     )
                     '5' -> (Blip (Just (CUse Potion )) , go Nothing     )
+                    ' ' -> (Blip (Just CNop)           , go Nothing     )
                     '1' -> (NoBlip                     , go (Just Sword))
                     '2' -> (NoBlip                     , go (Just Bow  ))
                     '3' -> (NoBlip                     , go (Just Bomb ))
                     '4' -> (NoBlip                     , go (Just Wall ))
                     _   -> (Blip Nothing               , go Nothing     )
     go (Just u) = mkAuto_ $ \x -> case x of
-                    'h' -> (Blip (Just (CAtk u DLeft )), go Nothing     )
-                    'j' -> (Blip (Just (CAtk u DDown )), go Nothing     )
-                    'k' -> (Blip (Just (CAtk u DUp   )), go Nothing     )
-                    'l' -> (Blip (Just (CAtk u DRight)), go Nothing     )
+                    'h' -> (Blip (Just (CAct u DLeft )), go Nothing     )
+                    'j' -> (Blip (Just (CAct u DDown )), go Nothing     )
+                    'k' -> (Blip (Just (CAct u DUp   )), go Nothing     )
+                    'l' -> (Blip (Just (CAct u DRight)), go Nothing     )
                     _   -> (Blip Nothing               , go Nothing     )
 
 
