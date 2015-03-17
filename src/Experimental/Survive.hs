@@ -90,7 +90,10 @@ instance Serialize a => Serialize (EntityInput a) where
 
 instance Applicative EntityInput where
     pure x = EI x zero mempty mempty
-    EI f p0 c0 w0 <*> EI x p1 c1 w1 = EI (f x) (p0 ^+^ p1) (c0 ++ c1) (w0 <> w1)
+    EI f p0 c0 w0 <*> EI x p1 c1 w1 = EI (f x) (p0 `v` p1) (c0 ++ c1) (w0 <> w1)
+      where
+        v x (V2 0 0) = x
+        v _ x        = x
 
 instance Semigroup a => Semigroup (EntityInput a) where
     (<>) = liftA2 (<>)
@@ -100,12 +103,13 @@ instance Monoid a => Monoid (EntityInput a) where
     mappend = liftA2 mappend
 
 instance Semigroup Cmd where
-    x <> _ = x
+    x <> CNop = x
+    _ <> x = x
 
 instance Monoid Cmd where
     mempty = CNop
-    mappend CNop x = x
-    mappend x    _ = x
+    mappend x CNop = x
+    mappend _    x = x
 
 
 makePrisms ''Cmd
@@ -129,14 +133,15 @@ dirToV2 dir = case dir of
 bomb :: Monad m => Dir -> Interval m (EntityInput a) EntityOutput
 bomb dir = proc _ -> do
     motion <- fromInterval zero . onFor 6 . pure (dirToV2 dir) -< ()
-    onFor 10 -< ((motion, EBomb), [])
+    explode <- fromBlips [] . inB 10 -< ERAtk 6 . dirToV2 <$> [DUp ..]
+    onFor 10 -< ((motion, EBomb), explode)
 
 
-wall :: Monad m => Interval m (EntityInput a) EntityOutput
+wall :: (Show a, Monad m) => Interval m (EntityInput a) EntityOutput
 wall = proc ei -> do
     let damage = sumOf (eiComm . traverse . _2 . _ECAtk) ei
     die <- became (<= 0) . sumFrom 3 -< negate damage
-    before -< (((zero, EWall), []), die)
+    before -< traceShow ei (((zero, EWall), []), die)
 
 player :: Monad m => Interval m (EntityInput Cmd) EntityOutput
 player = proc (EI inp p _ world) -> do
@@ -152,7 +157,7 @@ player = proc (EI inp p _ world) -> do
     move <- fromBlips zero -< fst <$> moveB'
     allAct <- fromBlipsWith [] (:[]) -< allActB
 
-    toOn -< traceShow inp ((move, EPlayer), allAct)
+    toOn -< traceShow (inp,isAtkMv(V2 1 0,(p,world)),p+V2 1 0,world) ((move, EPlayer), allAct)
   where
     isAtkMv :: (Point, (Point, EntityMap)) -> Bool
     isAtkMv (m,(p,em)) = any (\(p',e) -> p' == (p+m) && attackIt e) em
@@ -194,8 +199,8 @@ locomotor p0 entA = proc inp@(EI _ _ _ world) -> do
                        EWall   -> True
                        EBomb   -> False
 
-game :: MonadFix m => Auto m Cmd GameMap
-game = fmap last . accelerateWith CNop 2 $ proc inp -> do
+game :: MonadFix m => Auto m Cmd [GameMap]
+game = accelerateWith CNop 2 $ proc inp -> do
     rec mkPlayer <- immediately -< [(zero,ERPlayer startPos)]
 
         entOuts <- dynMapF makeEntity (pure CNop) -< (allInp', newEntsB')
@@ -213,38 +218,12 @@ game = fmap last . accelerateWith CNop 2 $ proc inp -> do
             newEntsB' = merge (<>) mkPlayer newEntsB
 
 
-    -- rec let pInp = maybe (pure inp)
-    --                      (set eiData inp)
-    --                      (IM.lookup (-1) allInpD)
-
-    --     pOut@((pPos,pEnt), pResp) <- fromJust <$> locomotor startPos player -< pInp
-
-    --     newEnts <- emitOn (not . null)          -< (pPos,) <$> pResp
-
-    --     -- attacks <- arr collectAttacks -< entOuts'
-
-    --     -- entInp  <- arrD mkEntInp IM.empty -< fst <$> entOuts'
-
-    --     entOuts <- dynMapF makeEntity (pure ()) -< (allInpD, newEnts)
-
-
-    --     let entOuts' = IM.insert (-1) pOut entOuts
-    --         attacks  = collectAttacks entOuts'
-    --         entInp   = mkEntInp entOuts'
-    --         allInp   = IM.unionWith (<>) entInp attacks
-
-    --     allInpD <- delay IM.empty -< allInp
-
-    --     -- entOutsD <- delay IM.empty -< entOuts
-    --     -- let entOuts' = IM.insert (-1) pOut entOutsD
-
-
     let entMap = M.fromListWith (<>)
                . IM.elems
                . fmap (second (:[]) . fst)
                $ entOuts
 
-    id -< entMap
+    id -< traceShow entOuts . traceShow attacks $ entMap
   where
     mkEntInp :: IntMap ((Point, Entity), a) -> IntMap (EntityInput Cmd)
     mkEntInp (fmap fst->ents) = (`IM.mapWithKey` ents) $ \i (p,_) ->
@@ -254,10 +233,12 @@ game = fmap last . accelerateWith CNop 2 $ proc inp -> do
                -> Interval m (EntityInput Cmd) EntityOutput
     makeEntity (p, er) = case er of
                            ERPlayer p  -> locomotor placed player
-                           ERBomb dir  -> stretch 2 $ locomotor placed (bomb dir)
+                           ERBomb dir  -> stretchy $ locomotor placed (bomb dir)
                            ERBuild dir -> locomotor placed wall
                            _           -> off
-      where placed = place p er
+      where
+        placed = place p er
+        stretchy = stretchAccumBy (<>) (set (_Just._2) []) 2
 
 
     place :: Point -> EntResp -> Point
@@ -328,18 +309,18 @@ parseCmd = go Nothing
 main :: IO ()
 main = do
     hSetBuffering stdin NoBuffering
-    renderStdout (M.singleton startPos [EPlayer])
-    _ <- runM generalize getChar process $ holdWith M.empty
+    renderStdout [ M.singleton startPos [EPlayer] ]
+    _ <- runM generalize getChar process $ holdWith []
                                          . perBlip (handleCmd game)
                                          . parseCmd
     return ()
   where
-    renderStdout mp = do
+    renderStdout mps = forM_ mps $ \mp -> do
       -- clearScreen
       putStrLn ""
       putStrLn (renderBoard mp)
-    process mp = do
-      unless (M.null mp) $ renderStdout mp
+    process mps = do
+      unless (null mps) $ renderStdout mps
       Just <$> getChar
 
 
