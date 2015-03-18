@@ -17,6 +17,8 @@ import Control.Auto.Core
 import Control.Auto.Interval
 import Control.Auto.Run
 import Control.Auto.Time
+import System.Random
+import Control.Auto.Process.Random
 import Control.Lens
 import Control.Monad                (unless, guard, mfilter)
 import Control.Monad.Fix
@@ -111,7 +113,7 @@ instance Applicative EntityInput where
     pure x = EI x (V2 (-1) (-1)) mempty mempty
     EI f p0 c0 w0 <*> EI x p1 c1 w1 = EI (f x) (p0 `v` p1) (c0 ++ c1) (w0 <> w1) -- watch out, is (<>) right here?
       where
-        v y (V2 (-1) (-1)) = y
+        v y (V2 (-1) (-1)) = y      -- yeah this might not work
         v _ y              = y
 
 instance Semigroup a => Semigroup (EntityInput a) where
@@ -246,7 +248,7 @@ player = proc (EI inp p _ world) -> do
                      Bow   -> ERShoot 400 20 d
                      Bomb  -> ERBomb d
                      Wall  -> ERBuild d
-    atkMap = M.fromList . map (,1000) $ [EWall, EMonster 'k']
+    atkMap = M.fromList . map (,1000) $ [EWall, EMonster 'Z']
 
 monster :: Monad m => Char -> Double -> Auto m (EntityInput a) (EntityOutput b)
 monster c damg = proc ei -> do
@@ -263,10 +265,11 @@ monster c damg = proc ei -> do
   where
     atkMap = M.fromList . map (,damg) $ [EPlayer, EWall, EBomb]
 
-game :: MonadFix m => Auto m Cmd [(Maybe PlayerOut, GameMap)]
-game = accelerateWith CNop 2 $ proc inp -> do
+game :: MonadFix m => StdGen -> Auto m Cmd [(Maybe PlayerOut, GameMap)]
+game g = accelerateWith CNop 2 $ proc inp -> do
     mkPlayer <- immediately -< [(zero, ERPlayer startPos)]
-    mkMonsters <- every 25 -< [(zero, ERMonster 'Z' 5 5 (V2 10 10))]
+
+    mkMonsters <- perBlip makeMonster . every 25 -< ()
 
     rec newEntsB <- emitOn (not . null) -< newEnts
 
@@ -289,8 +292,14 @@ game = accelerateWith CNop 2 $ proc inp -> do
              $ entOutsAlive
         po   = preview (traverse . eoData . _Just) entOutsAlive
 
-    id -< (po, gMap)
+    id -< traceShow entOuts (po, gMap)
   where
+    makeMonster = liftA2 (\x y -> [(zero, ERMonster 'Z' 5 5 (shift (V2 x y)))])
+                         (stdRands (randomR (0, view _x mapSize `div` 2)) g)
+                         (stdRands (randomR (0, view _y mapSize `div` 2)) g)
+      where
+        shift = liftA2 (\m x -> (x - (m `div` 4)) `mod` m) mapSize
+
     mkEntIns :: (Semigroup a, Monoid a, Show a) => EntityMap -> IntMap (EntityInput a) -> Key -> EntityOutput b -> IntMap (EntityInput a)
     mkEntIns em eis k (EO _ pos0 mv _ react (Just resps)) = IM.insertWith (<>) k res withAtks
       where
@@ -349,7 +358,7 @@ game = accelerateWith CNop 2 $ proc inp -> do
     makeEntity (p, er) = case er of
         ERPlayer _        -> booster placed . withHealth pHealth $ player
         ERBomb dir        -> stretchy . booster placed $ bomb dir
-        ERBuild _         -> stretchy . booster placed . withHealth 20  $ wall
+        ERBuild _         -> stretchy . booster placed . withHealth 25 $ wall
         ERMonster c h d _ -> stretchy . booster placed . withHealth h  $ monster c d
         ERFire s d _      -> stretchy . booster placed $ fire s d
         _                 -> off
@@ -427,14 +436,15 @@ parseCmd = go Nothing
                     _   -> (Blip Nothing               , go Nothing     )
 
 initialPO :: PlayerOut
-initialPO = PO [] 10
+initialPO = PO [] 50
 
 main :: IO ()
 main = do
+    g <- newStdGen
     hSetBuffering stdin NoBuffering
     renderStdout [ (Just initialPO, M.singleton startPos [EPlayer]) ]
     _ <- runM generalize getChar process $ holdWith []
-                                         . perBlip (handleCmd game)
+                                         . perBlip (handleCmd (game g))
                                          . parseCmd
     return ()
   where
