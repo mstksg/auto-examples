@@ -18,7 +18,7 @@ import Control.Auto.Interval
 import Control.Auto.Run
 import Control.Auto.Time
 import Control.Lens
-import Control.Monad                (unless, guard)
+import Control.Monad                (unless, guard, mfilter)
 import Control.Monad.Fix
 import Data.Foldable
 import Data.IntMap.Strict           (IntMap, Key)
@@ -53,7 +53,7 @@ data Cmd = CMove Dir
          deriving (Show, Eq, Ord, Read, Generic)
 
 data EntResp = ERAtk Double Point
-             | ERShoot Dir
+             | ERShoot Double Int Dir
              | ERBomb Dir
              | ERBuild Dir
              | ERFire Double Int Point
@@ -243,7 +243,7 @@ player = proc (EI inp p _ world) -> do
     toResp :: (Usable, Dir) -> EntResp
     toResp (u,d) = case u of
                      Sword -> ERAtk 400.0 (dirToV2 d)
-                     Bow   -> ERShoot d
+                     Bow   -> ERShoot 400 20 d
                      Bomb  -> ERBomb d
                      Wall  -> ERBuild d
     atkMap = M.fromList . map (,1000) $ [EWall, EMonster 'k']
@@ -269,14 +269,15 @@ game = accelerateWith CNop 2 $ proc inp -> do
     mkMonsters <- every 25 -< [(zero, ERMonster 'Z' 5 5 (V2 10 10))]
 
     rec newEntsB <- emitOn (not . null) -< newEnts
-        entInsD  <- id                  -< entIns
 
         let newEntsB' = mconcat [mkPlayer, mkMonsters, newEntsB]
-            entIns'   = set (traverse . eiData) inp entInsD
+            entIns'   = set (traverse . eiData) inp entIns
 
         entOuts <- dynMapF makeEntity (pure CNop) -< (entIns', newEntsB')
 
-        entOuts' <- delay IM.empty -< IM.filter (has (eoResps . _Just)) entOuts
+        let entOutsAlive = IM.filter (has (eoResps . _Just)) entOuts
+
+        entOuts' <- delay IM.empty -< entOutsAlive
 
         let entMap   = (_eoPos &&& _eoEntity) <$> entOuts'
             entIns   = IM.foldlWithKey (mkEntIns entMap) IM.empty entOuts' :: IntMap (EntityInput Cmd)
@@ -285,8 +286,8 @@ game = accelerateWith CNop 2 $ proc inp -> do
     let gMap = M.fromListWith (<>)
              . IM.elems
              . fmap (\eo -> (_eoPos eo, [_eoEntity eo]))
-             $ entOuts
-        po   = preview (traverse . eoData . _Just) entOuts
+             $ entOutsAlive
+        po   = preview (traverse . eoData . _Just) entOutsAlive
 
     id -< (po, gMap)
   where
@@ -303,13 +304,27 @@ game = accelerateWith CNop 2 $ proc inp -> do
         pos2     | any isBlocking allCols = pos0
                  | otherwise              = clamp pos1    -- could be short circuited here, really...
         colAtks  = IM.mapMaybe (\e -> (\d -> over eiComm ((k, ECAtk d):) mempty) <$> M.lookup e react) allCols
-        respAtks = IM.unionsWith (<>) . flip mapMaybe resps $ \r -> do
-                     ERAtk a _ <-  Just r
-                     let placed   = place pos0 r
-                         oldHits  = () <$ IM.filter (\(p,_) -> placed == p) em'
-                         newHits  = () <$ IM.filter (\ei -> placed == _eiPos ei) eis
-                         allHits  = oldHits <> newHits
-                     return $ set eiComm [(k, ECAtk a)] mempty <$ allHits
+        respAtks = IM.unionsWith (<>) . flip mapMaybe resps $ \r ->
+                     case r of
+                       ERAtk a _ ->
+                         let placed   = place pos2 r
+                             oldHits  = () <$ IM.filter (\(p,_) -> placed == p) em'
+                             newHits  = () <$ IM.filter (\ei -> placed == _eiPos ei) eis
+                             allHits  = oldHits <> newHits
+                         in  Just $ set eiComm [(k, ECAtk a)] mempty <$ allHits
+                       ERShoot a rg d ->   -- todo: drop stuff when too close...alert hits?
+                         let rg'      = fromIntegral rg
+                             oldHits = IM.mapMaybe (\(p,_) -> mfilter (<= rg') (aligned pos2 p d)) em'
+                             newHits = IM.mapMaybe (\ei    -> mfilter (<= rg') (aligned pos2 (_eiPos ei) d)) eis
+                             allHits = oldHits <> newHits
+                             minHit  = fst . minimumBy (comparing snd) $ IM.toList allHits
+                         in  if IM.null allHits
+                               then Nothing
+                               else Just $ IM.singleton minHit (set eiComm [(k, ECAtk a)] mempty)
+                       _          ->
+                         Nothing
+
+
         allAtks  = colAtks <> respAtks
         withAtks = IM.unionWith (<>) allAtks eis
         res      = EI mempty pos2 [] em'
@@ -319,6 +334,12 @@ game = accelerateWith CNop 2 $ proc inp -> do
                            EBomb      -> True
                            EFire      -> False
                            EMonster _ -> True
+        aligned :: Point -> Point -> Dir -> Maybe Double
+        aligned p0 p1 dir = norm r <$ guard (abs (dotted - 1) < 0.001)
+          where
+            r      = fmap fromIntegral (p1 - p0) :: V2 Double
+            rUnit  = normalize r
+            dotted = rUnit `dot` fmap fromIntegral (dirToV2 dir)
     mkEntIns _ eis _ _ = eis
     clamp = liftA3 (\mn mx -> max mn . min mx) (V2 0 0) mapSize
 
@@ -343,7 +364,7 @@ game = accelerateWith CNop 2 $ proc inp -> do
                    ERAtk _ disp       -> p ^+^ disp
                    ERBomb  dir        -> p ^+^ dirToV2 dir
                    ERBuild dir        -> p ^+^ dirToV2 dir
-                   ERShoot dir        -> p ^+^ dirToV2 dir
+                   ERShoot _ _ dir    -> p ^+^ dirToV2 dir
                    ERPlayer p'        -> p'
                    ERFire _ _ d       -> p ^+^ d
                    ERMonster _ _ _ p' -> p'
