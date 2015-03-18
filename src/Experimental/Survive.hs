@@ -32,7 +32,7 @@ import Data.Serialize
 import Data.Traversable             (sequence)
 import Debug.Trace
 import GHC.Generics
-import Linear hiding                (ei)
+import Linear hiding                (ei, trace)
 import Prelude hiding               ((.), id, elem, any, sequence, concatMap, sum, concat, sequence_)
 import System.Console.ANSI
 import System.IO
@@ -192,7 +192,7 @@ bomb dir = proc ei -> do
       y <- [-3..3]
       let r = sqrt (fromIntegral x**2 + fromIntegral y**2) :: Double
       guard $ r <= 3
-      let dur | r < 1     = 1
+      let dur | r < 1     = 2
               | r < 2     = 1
               | otherwise = 1
           str | r < 1     = 16
@@ -266,33 +266,32 @@ monster c damg = proc ei -> do
     atkMap = M.fromList . map (,damg) $ [EPlayer, EWall, EBomb]
 
 game :: MonadFix m => StdGen -> Auto m Cmd [(Maybe PlayerOut, GameMap)]
-game g = accelerateWith CNop 2 $ proc inp -> do
+-- game g = accelerateWith CNop 2 $ proc inp -> do
+game g = (:[]) <$> proc inp -> do
     mkPlayer <- immediately -< [(zero, ERPlayer startPos)]
 
     mkMonsters <- perBlip makeMonster . every 25 -< ()
 
-    rec newEntsB <- emitOn (not . null) -< newEnts
+    rec newEntsB <- emitOn (not . null) . delay [] -< newEnts
+        entInsD <- delay IM.empty -< entIns
 
         let newEntsB' = mconcat [mkPlayer, mkMonsters, newEntsB]
-            entIns'   = set (traverse . eiData) inp entIns
+            entIns'   = set (traverse . eiData) inp entInsD
 
         entOuts <- dynMapF makeEntity (pure CNop) -< (entIns', newEntsB')
 
-        let entOutsAlive = IM.filter (has (eoResps . _Just)) entOuts
-
-        entOuts' <- delay IM.empty -< entOutsAlive
-
-        let entMap   = (_eoPos &&& _eoEntity) <$> entOuts'
+        let entOuts' = IM.filter (has (eoResps . _Just)) entOuts
+            entMap   = (_eoPos &&& _eoEntity) <$> entOuts'
             entIns   = IM.foldlWithKey (mkEntIns entMap) IM.empty entOuts' :: IntMap (EntityInput Cmd)
             newEnts  = toList entOuts' >>= \(EO _ p _ _ _ ers) -> maybe [] (map (p,)) ers
 
     let gMap = M.fromListWith (<>)
              . IM.elems
-             . fmap (\eo -> (_eoPos eo, [_eoEntity eo]))
-             $ entOutsAlive
-        po   = preview (traverse . eoData . _Just) entOutsAlive
+             . IM.mapMaybeWithKey (\k eo -> (, [_eoEntity eo]) . _eiPos <$> IM.lookup k entIns)
+             $ entOuts'
+        po   = preview (traverse . eoData . _Just) entOuts'
 
-    id -< traceShow entOuts (po, gMap)
+    id -< trace (unlines [show entIns', show entOuts', show entIns]) (po, gMap)
   where
     makeMonster = liftA2 (\x y -> [(zero, ERMonster 'Z' 5 5 (shift (V2 x y)))])
                          (stdRands (randomR (0, view _x mapSize `div` 2)) g)
@@ -366,12 +365,13 @@ game g = accelerateWith CNop 2 $ proc inp -> do
         booster p0 a = (onFor 1 . arr (set (_Just . eoPos) p0) --> id) . a
         pHealth = view poHealth initialPO
         placed = place p er
-        stretchy = stretchAccumBy (<>) (set (_Just . eoResps . _Just) []) 2
+        -- stretchy = stretchAccumBy (<>) (set (_Just . eoResps . _Just) []) 2
+        stretchy = id
 
     place :: Point -> EntResp -> Point
     place p er = case er of
                    ERAtk _ disp       -> p ^+^ disp
-                   ERBomb  dir        -> p ^+^ dirToV2 dir
+                   ERBomb  _          -> p
                    ERBuild dir        -> p ^+^ dirToV2 dir
                    ERShoot _ _ dir    -> p ^+^ dirToV2 dir
                    ERPlayer p'        -> p'
