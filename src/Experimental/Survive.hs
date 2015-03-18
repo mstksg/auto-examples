@@ -418,7 +418,7 @@ main = do
     return ()
   where
     renderStdout mps = forM_ mps $ \mp -> do
-      -- clearScreen
+      clearScreen
       putStrLn ""
       putStrLn (renderBoard mp)
     process mps = do
