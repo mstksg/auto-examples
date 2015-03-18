@@ -31,7 +31,7 @@ import Data.Traversable             (sequence)
 import Debug.Trace
 import GHC.Generics
 import Linear hiding                (ei)
-import Prelude hiding               ((.), id, elem, any, sequence, concatMap, sum, concat)
+import Prelude hiding               ((.), id, elem, any, sequence, concatMap, sum, concat, sequence_)
 import System.Console.ANSI
 import System.IO
 import qualified Data.IntMap.Strict as IM
@@ -74,8 +74,10 @@ data EntityInput a = EI { _eiData  :: a
                         } deriving (Show, Eq, Ord, Read, Functor)
 
 data EntityOutput a = EO { _eoData   :: Maybe a
-                         , _eoPoint  :: Point
+                         , _eoPos    :: Point  -- position to move from
+                         , _eoMove   :: Point  -- move
                          , _eoEntity :: Entity
+                         , _eoReact  :: Map Entity Double
                          , _eoResps  :: Maybe [EntResp]
                          } deriving (Show, Eq, Ord, Read, Generic)
 
@@ -102,15 +104,15 @@ instance Serialize a => Serialize (EntityInput a) where
     get              = EI <$> get <*> get <*> get <*> get
 
 instance Serialize a => Serialize (EntityOutput a) where
-    put (EO x p e r) = put x *> put p *> put e *> put r
-    get              = EO <$> get <*> get <*> get <*> get
+    put (EO x p m e c r) = sequence_ [put x, put p, put m, put e, put c, put r]
+    get                  = EO <$> get <*> get <*> get <*> get <*> get <*> get
 
 instance Applicative EntityInput where
-    pure x = EI x zero mempty mempty
-    EI f p0 c0 w0 <*> EI x p1 c1 w1 = EI (f x) (p0 `v` p1) (c0 ++ c1) (w0 <> w1)
+    pure x = EI x (V2 (-1) (-1)) mempty mempty
+    EI f p0 c0 w0 <*> EI x p1 c1 w1 = EI (f x) (p0 `v` p1) (c0 ++ c1) (w0 <> w1) -- watch out, is (<>) right here?
       where
-        v y (V2 0 0) = y
-        v _ y        = y
+        v y (V2 (-1) (-1)) = y
+        v _ y              = y
 
 instance Semigroup a => Semigroup (EntityInput a) where
     (<>) = liftA2 (<>)
@@ -181,7 +183,7 @@ bomb dir = proc ei -> do
 
     explosion <- fromBlips [] -< explode
 
-    before -?> lmap fst (onFor 1) -< (EO Nothing motion EBomb (Just explosion), explode)
+    before -?> lmap fst (onFor 1) -< (EO Nothing (_eiPos ei) motion EBomb M.empty (Just explosion), explode)
   where
     explodes = do
       x <- [-3..3]
@@ -201,12 +203,12 @@ fire :: Monad m
      => Double
      -> Int
      -> Interval m (EntityInput a) (EntityOutput b)
-fire str dur = onFor dur . pure (EO Nothing zero EFire (Just [ERAtk str zero]))
+fire str dur = lmap (\ei -> (EO Nothing (_eiPos ei) zero EFire M.empty (Just [ERAtk str zero]))) (onFor dur)
 
 
 wall :: Monad m
      => Auto m (EntityInput a) (EntityOutput b)
-wall = pure (EO Nothing zero EWall (Just []))
+wall = arr $ \ei -> (EO Nothing (_eiPos ei) zero EWall M.empty (Just []))
 
 withHealth :: Monad m
            => Double
@@ -228,160 +230,123 @@ withHealth h0 entA = proc ei -> do
 
 player :: Monad m => Auto m (EntityInput Cmd) (EntityOutput PlayerOut)
 player = proc (EI inp p _ world) -> do
-    moveB            <- modifyBlips dirToV2
-                      . emitJusts (preview _CMove)   -< inp
+    move <- fromBlips zero
+          . modifyBlips dirToV2
+          . emitJusts (preview _CMove) -< inp
 
-    (atkMvB, moveB') <- forkB isAtkMv                -< (,(p, world)) <$> moveB
+    acts <- fromBlipsWith [] (:[])
+          . modifyBlips toResp
+          . emitJusts (preview _CAct)  -< inp
 
-    actB             <- modifyBlips toResp
-                      . emitJusts (preview _CAct)    -< inp
-    let allActB = actB `mergeL` (ERAtk 1.0 . fst <$> atkMvB)
-
-    move <- fromBlips zero -< fst <$> moveB'
-    allAct <- fromBlipsWith [] (:[]) -< allActB
-
-    id -< EO (Just mempty) move EPlayer (Just allAct)
+    id -< EO (Just mempty) p move EPlayer atkMap (Just acts)
   where
-    isAtkMv :: (Point, (Point, EntityMap)) -> Bool
-    isAtkMv (m,(p,em)) = any (\(p',e) -> p' == (p+m) && attackIt e) em
     toResp :: (Usable, Dir) -> EntResp
     toResp (u,d) = case u of
-                     Sword -> ERAtk 1.0 (dirToV2 d)
+                     Sword -> ERAtk 400.0 (dirToV2 d)
                      Bow   -> ERShoot d
                      Bomb  -> ERBomb d
                      Wall  -> ERBuild d
-    attackIt e = case e of
-                   EPlayer    -> False
-                   EWall      -> True
-                   EBomb      -> False
-                   EFire      -> False
-                   EMonster _ -> True
+    atkMap = M.fromList . map (,1000) $ [EWall, EMonster 'k']
 
 monster :: Monad m => Char -> Double -> Auto m (EntityInput a) (EntityOutput b)
 monster c damg = proc ei -> do
     let pPos  = ei ^? eiWorld . traverse . filtered (has (_2 . _EPlayer)) . _1
-        mPos  = view eiPos ei
-        world = view eiWorld ei
+        mPos  = _eiPos ei
+        world = _eiWorld ei
         delta = (^-^ mPos) <$> pPos
-        move' = flip fmap delta $ \(V2 dx dy) ->
+        move  = flip (maybe zero) delta $ \(V2 dx dy) ->
                   if abs dx > abs dy
                     then V2 (signum dx) 0
                     else V2 0 (signum dy)
 
-    (atkMvB, moveB') <- forkB isAtkMv . onJusts -< (,(mPos, world)) <$> move'
-
-    move <- fromBlips zero  -< fst <$> moveB'
-    attacks <- fromBlips [] -< (:[]) . ERAtk damg . fst <$> atkMvB
-
-    id -< EO Nothing move (EMonster c) (Just attacks)
+    id -< EO Nothing mPos move (EMonster c) atkMap (Just [])
   where
-    isAtkMv :: (Point, (Point, EntityMap)) -> Bool
-    isAtkMv (m,(p,em)) = any (\(p',e) -> p' == (p+m) && attackIt e) em
-    attackIt e = case e of
-                   EPlayer    -> True
-                   EWall      -> True
-                   EBomb      -> False
-                   EFire      -> False
-                   EMonster _ -> False
-
-locomotor :: Monad m
-          => Point
-          -> Interval m (EntityInput a) (EntityOutput b)
-          -> Interval m (EntityInput a) (EntityOutput b)
-locomotor p0 entA = proc inp@(EI _ _ _ world) -> do
-    outp <- entA -< inp
-    pos  <- fst <$> accum f (p0, False) -< (world, maybe zero (view eoPoint) outp)
-    id    -< set eoPoint pos <$> outp
-  where
-    f :: (Point, Bool) -> (EntityMap, Point) -> (Point, Bool)
-    f (p, mvd) (world, motion) = (restrict (p ^+^ motion), True)
-      where
-        world' = IM.mapMaybe getBlockers world
-        restrict p' | not mvd          = p'
-                    | p' `elem` world' = clamp' p
-                    | otherwise        = clamp' p'
-        clamp' | clamp p == p = clamp
-               | otherwise    = id
-    clamp = liftA3 (\mn mx -> max mn . min mx) (V2 0 0) mapSize
-    getBlockers (pos, ent) | isBlocking ent = Just pos
-                           | otherwise      = Nothing
-    isBlocking ent = case ent of
-                       EPlayer    -> True
-                       EWall      -> True
-                       EBomb      -> False
-                       EFire      -> False
-                       EMonster _ -> True
+    atkMap = M.fromList . map (,damg) $ [EPlayer, EWall, EBomb]
 
 game :: MonadFix m => Auto m Cmd [(Maybe PlayerOut, GameMap)]
 game = accelerateWith CNop 2 $ proc inp -> do
     mkPlayer <- immediately -< [(zero, ERPlayer startPos)]
-    mkMonsters <- every 50 -< [(zero, ERMonster 'Z' 5 5 (V2 10 10))]
+    mkMonsters <- every 25 -< [(zero, ERMonster 'Z' 5 5 (V2 10 10))]
 
-    rec entOuts <- dynMapF makeEntity (pure CNop) -< (allInp', newEntsB')
+    rec newEntsB <- emitOn (not . null) -< newEnts
+        entInsD  <- id                  -< entIns
 
-        let entOuts' = IM.filter (has (eoResps . _Just)) entOuts
-            attacks  = collectAttacks entOuts'
-            entInp   = mkEntInp entOuts'
-            allInp   = IM.unionWith (<>) entInp attacks
-            newEnts  = toList entOuts' >>= \(EO _ p _ ers) -> maybe [] (map (p,)) ers
+        let newEntsB' = mconcat [mkPlayer, mkMonsters, newEntsB]
+            entIns'   = set (traverse . eiData) inp entInsD
 
-        allInpD <- delay IM.empty -< allInp
+        entOuts <- dynMapF makeEntity (pure CNop) -< (entIns', newEntsB')
 
-        newEntsB <- lagBlips . emitOn (not . null) -< newEnts
+        entOuts' <- delay IM.empty -< IM.filter (has (eoResps . _Just)) entOuts
 
-        let allInp' = set (traverse . eiData) inp allInpD
-            newEntsB' = mconcat [mkPlayer, mkMonsters, newEntsB]
+        let entMap   = (_eoPos &&& _eoEntity) <$> entOuts'
+            entIns   = IM.foldlWithKey (mkEntIns entMap) IM.empty entOuts' :: IntMap (EntityInput Cmd)
+            newEnts  = toList entOuts' >>= \(EO _ p _ _ _ ers) -> maybe [] (map (p,)) ers
 
+    let gMap = M.fromListWith (<>)
+             . IM.elems
+             . fmap (\eo -> (_eoPos eo, [_eoEntity eo]))
+             $ entOuts
+        po   = preview (traverse . eoData . _Just) entOuts
 
-    let entMap = M.fromListWith (<>)
-               . IM.elems
-               . fmap (\(EO _ p e _) -> (p, [e]))
-               $ entOuts'
-        po     = preview (traverse . eoData . _Just) entOuts'
-
-    id -< (po, entMap)
+    id -< (po, gMap)
   where
-    mkEntInp :: IntMap (EntityOutput b) -> IntMap (EntityInput Cmd)
-    mkEntInp eos = (`IM.mapWithKey` ents) $ \i (p,_) ->
-                                     (EI CNop p [] (IM.delete i ents))
+    mkEntIns :: (Semigroup a, Monoid a, Show a) => EntityMap -> IntMap (EntityInput a) -> Key -> EntityOutput b -> IntMap (EntityInput a)
+    mkEntIns em eis k (EO _ pos0 mv _ react (Just resps)) = IM.insertWith (<>) k res withAtks
       where
-        ents = fmap (\(EO _ p e _) -> (p, e)) eos
+        em'      = IM.delete k em
+        pos1     = pos0 ^+^ mv
+        oldCols  = IM.mapMaybe (\(p,e) -> e <$ guard (p == pos1)) em'
+        newCols  = flip IM.mapMaybeWithKey eis $ \k' ei -> do
+                     guard (_eiPos ei == pos1)
+                     snd <$> IM.lookup k' em'
+        allCols  = oldCols <> newCols
+        pos2     | any isBlocking allCols = pos0
+                 | otherwise              = clamp pos1    -- could be short circuited here, really...
+        colAtks  = IM.mapMaybe (\e -> (\d -> over eiComm ((k, ECAtk d):) mempty) <$> M.lookup e react) allCols
+        respAtks = IM.unionsWith (<>) . flip mapMaybe resps $ \r -> do
+                     ERAtk a _ <-  Just r
+                     let placed   = place pos0 r
+                         oldHits  = () <$ IM.filter (\(p,_) -> placed == p) em'
+                         newHits  = () <$ IM.filter (\ei -> placed == _eiPos ei) eis
+                         allHits  = oldHits <> newHits
+                     return $ set eiComm [(k, ECAtk a)] mempty <$ allHits
+        allAtks  = colAtks <> respAtks
+        withAtks = IM.unionWith (<>) allAtks eis
+        res      = EI mempty pos2 [] em'
+        isBlocking ent = case ent of
+                           EPlayer    -> True
+                           EWall      -> True
+                           EBomb      -> True
+                           EFire      -> False
+                           EMonster _ -> True
+    mkEntIns _ eis _ _ = eis
+    clamp = liftA3 (\mn mx -> max mn . min mx) (V2 0 0) mapSize
+
     makeEntity :: Monad m
                => (Point, EntResp)
                -> Interval m (EntityInput Cmd) (EntityOutput PlayerOut)
     makeEntity (p, er) = case er of
-        ERPlayer _        ->            locomotor placed . withHealth pHealth $ player
-        ERBomb dir        -> stretchy . locomotor placed $ bomb dir
-        ERBuild _         -> stretchy . locomotor placed . withHealth 20 $ wall
-        ERMonster c h d _ -> stretchy . locomotor placed . withHealth h $ monster c d
-        ERFire s d _      -> stretchy . locomotor placed $ fire s d
+        ERPlayer _        -> booster placed . withHealth pHealth $ player
+        ERBomb dir        -> stretchy . booster placed $ bomb dir
+        ERBuild _         -> stretchy . booster placed . withHealth 20  $ wall
+        ERMonster c h d _ -> stretchy . booster placed . withHealth h  $ monster c d
+        ERFire s d _      -> stretchy . booster placed $ fire s d
         _                 -> off
       where
+        booster p0 a = (onFor 1 . arr (set (_Just . eoPos) p0) --> id) . a
         pHealth = view poHealth initialPO
         placed = place p er
         stretchy = stretchAccumBy (<>) (set (_Just . eoResps . _Just) []) 2
 
-
     place :: Point -> EntResp -> Point
     place p er = case er of
                    ERAtk _ disp       -> p ^+^ disp
-                   ERBomb  _          -> p
+                   ERBomb  dir        -> p ^+^ dirToV2 dir
                    ERBuild dir        -> p ^+^ dirToV2 dir
                    ERShoot dir        -> p ^+^ dirToV2 dir
                    ERPlayer p'        -> p'
                    ERFire _ _ d       -> p ^+^ d
                    ERMonster _ _ _ p' -> p'
-
-    collectAttacks :: Monoid a => IntMap (EntityOutput b) -> IntMap (EntityInput a)
-    collectAttacks ents = fmap (\as -> set eiComm as mempty) $
-      (`IM.mapWithKey` ents) $ \i (EO _ p _ _) ->
-        let filtEnts = IM.delete i ents
-            atks = (`IM.mapWithKey` filtEnts) $ \_ (EO _ p' _ ers) ->
-                     flip mapMaybe (fromMaybe [] ers) $ \er -> do
-                       ERAtk a _ <- Just er
-                       guard $ place p' er == p
-                       Just (ECAtk a)
-        in  concatMap sequence $ IM.toList atks
 
 handleCmd :: (Serialize b, Monoid b, Monad m)
           => Auto m Cmd b
@@ -453,7 +418,7 @@ main = do
     return ()
   where
     renderStdout mps = forM_ mps $ \mp -> do
-      clearScreen
+      -- clearScreen
       putStrLn ""
       putStrLn (renderBoard mp)
     process mps = do
