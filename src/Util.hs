@@ -2,30 +2,59 @@
 
 -- | Utility functions for experiments
 
-module Util (dynMapAccum) where
+module Util (dynMapAccumF, mutual, bracketA) where
 
 import Control.Auto
+import Control.Auto.Blip.Internal
 import Control.Auto.Core
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.State
-import Control.Auto.Blip.Internal
-import Data.IntMap               (IntMap, Key)
+import Data.Foldable
+import Data.IntMap                (IntMap, Key)
+import Data.Serialize             (Serialize)
 import Data.Traversable
-import Prelude hiding            ((.), id, sequence)
-import qualified Data.IntMap     as IM
+import Prelude hiding             ((.), id, sequence, mapM, mapM_)
+import qualified Data.IntMap      as IM
+import qualified Data.Serialize   as S
 
-dynMapAccum :: forall a b c d k s m. (Monad m, Applicative m)
-            => (Key -> a -> s -> (b, s))
-            -> (Key -> c -> s -> (d, s))
-            -> s
-            -> (k -> Interval m b c)
-            -> a
-            -> Auto m (IntMap a, Blip [k]) (IntMap d, s)
-dynMapAccum g1 g2 s0 f x0 = go 0 IM.empty IM.empty
-  where
-    go i ks as = mkAutoM undefined
+bracketA :: Monad m
+         => Auto m (Either a b) c
+         -> Auto m c b
+         -> Auto m a c
+bracketA a1 a2 = mkAutoM undefined
                          undefined
-                       $ \(xs, news) -> do
+                       $ \x -> do
+                           (y , a1' ) <- stepAuto a1 (Left x)
+                           (z , a2' ) <- stepAuto a2 y
+                           (y', a1'') <- stepAuto a1' (Right z)
+                           return (y', bracketA a1'' a2')
+
+mutual :: (Monad m, Serialize d)
+       => Auto m (a, d) c
+       -> Auto m (b, c) d
+       -> d
+       -> Auto m (a, b) (c, d)
+mutual a1 a2 z2 = mkAutoM (mutual <$> resumeAuto a1 <*> resumeAuto a2 <*> S.get)
+                          (saveAuto a1 *> saveAuto a2 *> S.put z2)
+                        $ \(x1, x2) -> do
+                            (y1, a1') <- stepAuto a1 (x1, z2)
+                            (y2, a2') <- stepAuto a2 (x2, y1)
+                            return ((y1, y2), mutual a1' a2' y2)
+
+dynMapAccumF :: forall a b c d k s m. (Monad m, Applicative m, Serialize k)
+             => (Key -> a -> s -> (b, s))
+             -> (Key -> c -> s -> (d, s))
+             -> (k -> Interval m b c)
+             -> a
+             -> Auto m ((s, IntMap a), Blip [k]) (IntMap d, s)
+dynMapAccumF g1 g2 f x0 = go 0 IM.empty IM.empty
+  where
+    go i ks as = mkAutoM (do i'  <- S.get
+                             ks' <- S.get
+                             as' <- mapM (resumeAuto . f) ks'
+                             return (go i' ks' as') )
+                         (S.put i *> S.put ks *> mapM_ saveAuto as)
+                       $ \((s0, xs), news) -> do
                            let newks  = zip [i..] (blip [] id news)
                                newas  = (map . second) f newks
                                newks' = ks `IM.union` IM.fromList newks
