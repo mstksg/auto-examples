@@ -15,10 +15,9 @@ import Control.Auto.Blip.Internal
 import Control.Auto.Collection
 import Control.Auto.Core
 import Control.Auto.Interval
+import Control.Auto.Process.Random
 import Control.Auto.Run
 import Control.Auto.Time
-import System.Random
-import Control.Auto.Process.Random
 import Control.Lens
 import Control.Monad                (unless, guard, mfilter)
 import Control.Monad.Fix
@@ -31,11 +30,12 @@ import Data.Ord
 import Data.Serialize
 import Data.Traversable             (sequence)
 import Debug.Trace
-import GHC.Generics
+import GHC.Generics hiding          (to)
 import Linear hiding                (ei, trace)
 import Prelude hiding               ((.), id, elem, any, sequence, concatMap, sum, concat, sequence_)
 import System.Console.ANSI
 import System.IO
+import System.Random
 import qualified Data.IntMap.Strict as IM
 import qualified Data.Map.Strict    as M
 
@@ -268,31 +268,37 @@ monster c damg = proc ei -> do
 game :: MonadFix m => StdGen -> Auto m Cmd [(Maybe PlayerOut, GameMap)]
 -- game g = accelerateWith CNop 2 $ proc inp -> do
 game g = (:[]) <$> proc inp -> do
-    mkPlayer <- immediately -< [(zero, ERPlayer startPos)]
-
     mkMonsters <- perBlip makeMonster . every 25 -< ()
 
-    rec newEntsB <- emitOn (not . null) . delay [] -< newEnts
+    rec pOut <- player' -< fromMaybe (pure inp) $ entInsD ^? ix (-1) . to (set eiData inp)
+
+        let entOutsAlive = IM.filter (has (eoResps . _Just)) entOuts
+
+        entOutsD <- delay IM.empty -<  entOutsAlive
+
+        let entOutsAll = maybe id (IM.insert (-1)) pOut entOutsD
+            entMap     = (_eoPos &&& _eoEntity) <$> entOutsAll
+            entIns     = IM.foldlWithKey (mkEntIns entMap) IM.empty entOutsAll :: IntMap (EntityInput Cmd)
+            newEnts    = toList entOutsAll >>= \(EO _ p _ _ _ ers) -> maybe [] (map (p,)) ers
+
         entInsD <- delay IM.empty -< entIns
 
-        let newEntsB' = mconcat [mkPlayer, mkMonsters, newEntsB]
-            entIns'   = set (traverse . eiData) inp entInsD
+        newEntsB <- emitOn (not . null) -< newEnts
 
-        entOuts <- dynMapF makeEntity (pure CNop) -< (entIns', newEntsB')
+        let newEntsBAll = mconcat [mkMonsters, newEntsB]
 
-        let entOuts' = IM.filter (has (eoResps . _Just)) entOuts
-            entMap   = (_eoPos &&& _eoEntity) <$> entOuts'
-            entIns   = IM.foldlWithKey (mkEntIns entMap) IM.empty entOuts' :: IntMap (EntityInput Cmd)
-            newEnts  = toList entOuts' >>= \(EO _ p _ _ _ ers) -> maybe [] (map (p,)) ers
+        entOuts <- dynMapF makeEntity (pure CNop) -< (entIns, newEntsBAll)
 
     let gMap = M.fromListWith (<>)
              . IM.elems
-             . IM.mapMaybeWithKey (\k eo -> (, [_eoEntity eo]) . _eiPos <$> IM.lookup k entIns)
-             $ entOuts'
-        po   = preview (traverse . eoData . _Just) entOuts'
+             . IM.mapWithKey (\k eo -> (, [_eoEntity eo]) . maybe (_eoPos eo)  _eiPos $ IM.lookup k entIns)
+             . maybe id (IM.insert (-1)) pOut
+             $ entOutsAlive
+        po   = _eoData =<< pOut
 
-    id -< trace (unlines [show entIns', show entOuts', show entIns]) (po, gMap)
+    id -< (po, gMap)
   where
+    player' = booster startPos . withHealth (_poHealth initialPO) $ player
     makeMonster = liftA2 (\x y -> [(zero, ERMonster 'Z' 5 5 (shift (V2 x y)))])
                          (stdRands (randomR (0, view _x mapSize `div` 2)) g)
                          (stdRands (randomR (0, view _y mapSize `div` 2)) g)
@@ -362,16 +368,16 @@ game g = (:[]) <$> proc inp -> do
         ERFire s d _      -> stretchy . booster placed $ fire s d
         _                 -> off
       where
-        booster p0 a = (onFor 1 . arr (set (_Just . eoPos) p0) --> id) . a
-        pHealth = view poHealth initialPO
+        pHealth = _poHealth initialPO
         placed = place p er
         -- stretchy = stretchAccumBy (<>) (set (_Just . eoResps . _Just) []) 2
         stretchy = id
 
+    booster p0 a = (onFor 1 . arr (set (_Just . eoPos) p0) --> id) . a
     place :: Point -> EntResp -> Point
     place p er = case er of
                    ERAtk _ disp       -> p ^+^ disp
-                   ERBomb  _          -> p
+                   ERBomb  dir        -> p ^+^ dirToV2 dir
                    ERBuild dir        -> p ^+^ dirToV2 dir
                    ERShoot _ _ dir    -> p ^+^ dirToV2 dir
                    ERPlayer p'        -> p'
