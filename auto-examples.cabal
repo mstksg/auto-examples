@@ -145,6 +145,7 @@ executable survive
                      , containers
                      , cereal
                      , lens
+                     , free
                      , linear
                      , profunctors
                      , containers
