@@ -18,6 +18,7 @@ import Control.Auto.Collection
 import Control.Auto.Core
 import Control.Auto.Effects
 import Control.Auto.Interval
+import Control.Monad.Random
 import Control.Auto.Process.Random
 import Control.Auto.Run
 import Control.Auto.Time
@@ -266,7 +267,7 @@ actionMap = M.fromList $ fmap (\d -> ((Sword, d), ERAtk 400 (dirToV2 d))) [DUp .
                       ++ fmap (\d -> ((Bomb, d), ERBomb d)) [DUp ..]
                       ++ fmap (\d -> ((Wall, d), ERBuild d)) [DUp ..]
 
-monster :: Monad m
+monster :: MonadRandom m
         => Char
         -> Double
         -> Auto m EntityInput (EntityOutput a)
@@ -275,7 +276,7 @@ monster c damg = proc ei -> do
         mPos  = _eiPos ei
         world = _eiWorld ei
         delta = (^-^ mPos) <$> pPos
-        move  = flip (maybe zero) delta $ \(V2 dx dy) ->
+        move  = flip fmap delta $ \(V2 dx dy) ->
                   let adx = abs dx
                       ady = abs dy
                   in  case () of
@@ -284,7 +285,11 @@ monster c damg = proc ei -> do
                            | adx < ady -> V2 (signum dx) 0
                            | otherwise -> V2 0 (signum dy)
 
-    id -< EO Nothing mPos move (EMonster c) atkMap (Just [])
+    wander <- effect (dirToV2 `liftM` uniform [DUp ..]) -< ()
+
+    let move' = fromMaybe wander move
+
+    id -< EO Nothing mPos move' (EMonster c) atkMap (Just [])
   where
     atkMap = M.fromList . map (,damg) $ [EPlayer, EWall, EBomb]
 
@@ -292,9 +297,10 @@ game :: MonadFix m
      => StdGen
      -> Auto m Cmd [(Maybe PlayerOut, GameMap)]
 game g = proc inp -> do
-    (((eo, _), gm), msgs) <- runWriterA (bracketA playerA worldA) -< inp
+    (((eo, _), gm), msgs) <- game' -< inp
     id -< [(fmap (PO msgs) . _eoData =<< eo, gm)]
   where
+    game' = runWriterA (sealRandomStd (bracketA playerA worldA) g)
     playerA :: (MonadFix m, MonadWriter [OutMessage] m)
             => Auto m (Either Cmd EntityInput)
                       ( ( Maybe (EntityOutput Double)
@@ -324,7 +330,7 @@ game g = proc inp -> do
                  . (fmap . second) (:[])
                  . IM.insert (-1) (p, EPlayer)
 
-    worldA :: (MonadFix m, MonadWriter [OutMessage] m)
+    worldA :: (MonadFix m, MonadWriter [OutMessage] m, MonadRandom m)
            => Auto m ( ( Maybe (EntityOutput Double)
                        , IntMap EntityInput
                        ), GameMap
@@ -368,13 +374,13 @@ game g = proc inp -> do
 
         id -< set eiWorld (IM.delete (-1) entMap') . IM.findWithDefault mempty (-1) $ entIns'
       where
-        makeMonsters :: Monad m => Int -> Auto m a (Blip [(Point, EntResp)])
+        makeMonsters :: MonadRandom m => Int -> Auto m a (Blip [(Point, EntResp)])
         makeMonsters n = onFor 100 . perBlip makeMonster . every n
                      --> makeMonsters (n `div` 2)
-        makeMonster :: Monad m => Auto m a [(Point, EntResp)]
+        makeMonster :: MonadRandom m => Auto m a [(Point, EntResp)]
         makeMonster = liftA2 (\x y -> [(zero, ERMonster 'Z' 5 5 (shift (V2 x y)))])
-                             (stdRands (randomR (0, view _x mapSize `div` 2)) g)
-                             (stdRands (randomR (0, view _y mapSize `div` 2)) g)
+                             (effect (getRandomR (0, view _x mapSize `div` 2)))
+                             (effect (getRandomR (0, view _y mapSize `div` 2)))
           where
             shift = liftA2 (\m x -> (x - (m `div` 4)) `mod` m) mapSize
 
@@ -409,10 +415,16 @@ game g = proc inp -> do
                                           snd <$> IM.lookup k' em
                              allHits  = oldHits <> newHits
                          in  Just $ (\e' -> (set eiComm [(k, ECAtk a)] mempty, [OMAtk e e' a])) <$> allHits
-                       ERShoot a rg d ->   -- todo: drop stuff when too close...alert hits?
+                       ERShoot a rg d ->   -- TODO: drop when miss
                          let rg'     = fromIntegral rg
-                             oldHits = flip IM.mapMaybe em' $ \(p, _) -> mfilter (<= rg') (aligned pos2 p d)
-                             newHits = flip IM.mapMaybe eis $ \ei -> mfilter (<= rg') (aligned pos2 (_eiPos ei) d)
+                             oldHits = flip IM.mapMaybe em' $ \(p, e') -> do
+                                         guard $ arrowHit e'
+                                         dst <- aligned pos2 p d
+                                         dst <$ guard (dst <= rg')
+                             newHits = flip IM.mapMaybeWithKey eis $ \k' ei -> do
+                                         guard $ arrowHit (snd (em IM.! k'))
+                                         dst <- aligned pos2 (_eiPos ei) d
+                                         dst <$ guard (dst <= rg')
                              allHits = oldHits <> newHits
                              minHit  = fst . minimumBy (comparing snd) $ IM.toList allHits
                          in  Just $ if IM.null allHits
@@ -421,10 +433,10 @@ game g = proc inp -> do
                        _          ->
                          Nothing
 
-        allAtks  = colAtks <> IM.delete k respAtks
+        allAtks  = colAtks <> respAtks
         messages = toListOf (traverse . _2 . traverse) allAtks
 
-        withAtks = IM.unionWith (<>) (fst <$> allAtks) eis
+        withAtks = IM.unionWith (<>) (fst <$> IM.delete k allAtks) eis
         res      = EI pos2 [] em'
         isBlocking ent = case ent of
                            EPlayer    -> True
@@ -438,9 +450,16 @@ game g = proc inp -> do
             r      = fmap fromIntegral (p1 - p0) :: V2 Double
             rUnit  = normalize r
             dotted = rUnit `dot` fmap fromIntegral (dirToV2 dir)
+        arrowHit :: Entity -> Bool
+        arrowHit ent = case ent of
+                         EPlayer    -> True
+                         EWall      -> False
+                         EBomb      -> True
+                         EFire      -> False
+                         EMonster _ -> True
     mkEntIns _ eis _ _ = (eis, [])
     clamp = liftA3 (\mn mx -> max mn . min mx) (V2 0 0) mapSize
-    makeEntity :: Monad m
+    makeEntity :: MonadRandom m
                => (Point, EntResp)
                -> Interval m EntityInput (EntityOutput Double)
     makeEntity (p, er) = case er of
