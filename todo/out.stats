@@ -1,39 +1,39 @@
 code size summary per package:
 
-auto-0.2.0.0:            200106
-base:                    274641
+auto-0.2.0.4:            219838
+base:                    281700
 bytestring-0.10.6.0:     3358
-cereal-0.4.1.1:          104941
-containers-0.5.6.2:      137702
-ghc-prim:                12706
+cereal-0.4.1.1:          98091
+containers-0.5.6.2:      81451
+ghc-prim:                8430
 ghcjs-base-0.1.0.0:      1597
 ghcjs-dom-0.1.1.3:       49545
-ghcjs-prim-0.1.0.0:      9448
+ghcjs-prim-0.1.0.0:      9444
 integer-gmp:             14617
-main:                    258698
+main:                    241908
 text-1.2.0.3:            21338
 transformers-0.4.2.0:    868
 
 
 code size per module:
 
-auto-0.2.0.0
+auto-0.2.0.4
     Control.Auto.Blip:                  11873
     Control.Auto.Blip.Internal:         676
-    Control.Auto.Collection:            35665
-    Control.Auto.Core:                  145121
+    Control.Auto.Collection:            52035
+    Control.Auto.Core:                  148483
     Control.Auto.Run:                   6771
 
 base
-    Control.Arrow:                      245
+    Control.Arrow:                      906
     Control.Category:                   411
     Control.Concurrent.Chan:            4174
-    Control.Exception.Base:             3494
+    Control.Exception.Base:             6399
     Control.Monad.Fix:                  584
     Data.Either:                        397
     Data.List:                          676
-    Data.Maybe:                         442
-    Data.Tuple:                         167
+    Data.Maybe:                         269
+    Data.Tuple:                         334
     Data.Typeable:                      891
     Data.Typeable.Internal:             1372
     Foreign.C.Error:                    9715
@@ -57,19 +57,19 @@ base
     GHC.IO.Encoding.Failure:            396
     GHC.IO.Encoding.Types:              1032
     GHC.IO.Encoding.UTF8:               61531
-    GHC.IO.Exception:                   17922
+    GHC.IO.Exception:                   20093
     GHC.IO.FD:                          35880
     GHC.IO.Handle:                      477
     GHC.IO.Handle.FD:                   6725
     GHC.IO.Handle.Internals:            26929
     GHC.IO.Handle.Types:                3507
     GHC.Int:                            802
-    GHC.List:                           2276
+    GHC.List:                           3720
     GHC.MVar:                           188
     GHC.Ptr:                            188
     GHC.ST:                             186
     GHC.STRef:                          194
-    GHC.Show:                           21700
+    GHC.Show:                           21584
     GHC.Storable:                       1084
     GHC.TopHandler:                     10214
     GHC.Word:                           1303
@@ -80,21 +80,21 @@ bytestring-0.10.6.0
     Data.ByteString.Internal:           2545
 
 cereal-0.4.1.1
-    Data.Serialize:                     63987
+    Data.Serialize:                     57169
     Data.Serialize.Builder:             1192
-    Data.Serialize.Get:                 37687
+    Data.Serialize.Get:                 37655
     Data.Serialize.Put:                 2075
 
 containers-0.5.6.2
-    Data.Map.Base:                      107984
-    Data.Map.Strict:                    29718
+    Data.IntMap.Base:                   74571
+    Data.IntMap.Strict:                 6880
 
 ghc-prim
     GHC.CString:                        4515
-    GHC.Classes:                        5305
+    GHC.Classes:                        1161
     GHC.IntWord64:                      146
-    GHC.Tuple:                          1412
-    GHC.Types:                          1328
+    GHC.Tuple:                          1690
+    GHC.Types:                          918
 
 ghcjs-base-0.1.0.0
     GHCJS.Foreign:                      1023
@@ -107,7 +107,7 @@ ghcjs-dom-0.1.1.3
     GHCJS.DOM.Types:                    41090
 
 ghcjs-prim-0.1.0.0
-    GHCJS.Prim:                         8672
+    GHCJS.Prim:                         8668
     GHCJS.Prim.Internal:                776
 
 integer-gmp
@@ -115,8 +115,8 @@ integer-gmp
     GHC.Integer.Type:                   14445
 
 main
-    Main:                               189178
-    Todo:                               69520
+    Main:                               184586
+    Todo:                               57322
 
 text-1.2.0.3
     Data.Text:                          19366
@@ -128,5 +128,5 @@ transformers-0.4.2.0
 
 
 
-packed metadata: 186305
+packed metadata: 175128
 
