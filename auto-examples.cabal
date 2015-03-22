@@ -142,6 +142,7 @@ executable survive
                      , random
                      , ansi-terminal
                      , transformers
+                     , mtl
                      , containers
                      , cereal
                      , lens
