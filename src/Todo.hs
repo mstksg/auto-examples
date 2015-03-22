@@ -23,18 +23,18 @@
 module Todo (TaskID, TodoInp(..), TaskCmd(..), Task(..), todoApp) where
 
 import Control.Auto
-import Control.Auto.Blip
 import Control.Auto.Collection
 import Control.Monad
 import Control.Monad.Fix
-import Data.Map                (Map)
+import Data.IntMap.Strict           (IntMap, Key)
 import Data.Maybe
+import Data.Profunctor
 import Data.Serialize
 import GHC.Generics
-import Prelude hiding          ((.), id)
-import qualified Data.Map      as M
+import Prelude hiding               ((.), id)
+import qualified Data.IntMap.Strict as IM
 
-type TaskID = Int
+type TaskID = Key
 
 -- | An Input event, from the GUI
 data TodoInp = IEAdd  String
@@ -50,7 +50,7 @@ data TaskCmd = TEDelete
              deriving Show
 
 -- | A single task
-data Task = Task { taskDescr     :: Maybe String
+data Task = Task { taskDescr     :: String
                  , taskCompleted :: Bool
                  } deriving (Show, Generic)
 
@@ -58,84 +58,70 @@ instance Serialize Task
 
 -- | The main Auto.  Takes in a stream of input events, and outputs
 -- Maps of TaskId's and Tasks.
-todoApp :: MonadFix m => Auto m TodoInp (Map TaskID Task)
+todoApp :: MonadFix m => Auto m TodoInp (IntMap Task)
 todoApp = proc inpEvt -> do
 
-    rec -- the id's of all the tasks currently stored
-        --
-        -- basically applying `M.key` to `tMap`, like `arr M.key`.  But we
-        -- use `arrD` instead of `arr` to provide a fixed point for our
-        -- recursive bindings.  See the tutorial for more detail:
-        -- https://github.com/mstksg/auto/blob/master/tutorial/tutorial.md
-        ids <- arrD M.keys [] -< tMap
+        -- all of the id's of the current stored tasks, in the IntMap
+        -- `tmap`.  First result will be `[]`.
+    rec allIds <- arrD IM.keys [] -< tMap
 
-        -- "forking" the blip stream
-        -- * one blip stream for new task blips, filtering on isAdd
-        newTaskB <- perBlip newTask . emitJusts getAddEvts -< inpEvt
-        -- * one blip stream for single task mod blips, filtering on validTE
-        modTaskB <-                   emitJusts validTE    -< (ids, inpEvt)
-        -- * one blip stream for "mass" tasks, `IEAll`
-        allTaskB <-                   emitJusts getMass    -< (ids, inpEvt)
+        -- "forking" `inpEvt` into three blip streams:
+        -- * one blip stream for blips emitting new tasks as strings
+        newTaskB <- emitJusts getAddEvts  -< inpEvt
+        -- * one blip stream emitting individual targeted commands
+        modTaskB <- emitJusts getModEvts  -< inpEvt
+        -- * one blip stream emitting "mass" commands
+        allTaskB <- emitJusts getMassEvts -< (allIds, inpEvt)
 
-        let -- re-join them back together with `mergeL`
+        -- merge the two streams together to get "all" inputs, single and
+        -- mass.
+        let allInpB = modTaskB <> allTaskB
 
-            -- merge blip streams for single-task events
-            singleB :: Blip (TaskID, TaskCmd)
-            singleB = newTaskB `mergeL` modTaskB
+        -- from a blip stream to an `IntMap` that is empty when the stream
+        -- doesn't emit
+        allInp <- fromBlips IM.empty -< allInpB
 
-            -- merge blip streams for all-task events
-            allEvtB :: Blip (Map TaskID TaskCmd)
-            allEvtB = allTaskB `mergeL` (uncurry M.singleton <$> singleB)
-
-        -- a Map of Task Id's and Tasks, running `taskMap` per emitted
-        -- input
-        tMap <- holdWith mempty . perBlip taskMap -< allEvtB
+        -- feed the commands and the new tasks to `taskMap`...the result is
+        -- the `IntMap` of tasks.
+        tMap <- taskMap -< (allInp, newTaskB)
 
     id -< tMap
   where
-    -- Used with `mapMaybeB` to filter the stream on valid task commands
-    validTE (ids, IETask n te) | n `elem` ids = Just (n, te)
-    validTE _                                 = Nothing
-    getMass (ids, IEAll te)    = Just (M.fromList (map (,te) ids))
-    getMass _                  = Nothing
-    getAddEvts (IEAdd dscr)    = Just dscr
-    getAddEvts _               = Nothing
+    -- blip stream sorters
+    getAddEvts :: TodoInp -> Maybe [String]
+    getAddEvts (IEAdd descr) = Just [descr]
+    getAddEvts _             = Nothing
+    getModEvts :: TodoInp -> Maybe (IntMap TaskCmd)
+    getModEvts (IETask n te) = Just $ IM.singleton n te
+    getModEvts _             = Nothing
+    getMassEvts :: ([TaskID], TodoInp) -> Maybe (IntMap TaskCmd)
+    getMassEvts (allIds, IEAll te) = Just $ IM.fromList (map (,te) allIds)
+    getMassEvts _                  = Nothing
 
 
-    -- Used to increment id's and create a new task
-    newTask = proc descr -> do
-      newId <- count -< ()
-      id -< (newId, TEModify descr)
-
--- | An Auto that takes a TaskID and a Task command and updates an internal
--- map of TaskID's to Tasks, using `gather`.  See documentation for help on
--- `gather`.
+-- | 'Auto' taking an 'IntMap' of task commands, where the key of each
+-- command is the ID of the task to send it to.  It also takes a blip
+-- stream containing strings for new tasks to create.
 --
--- Basically, `gather` keeps a `Map` of `k`s to `Interval a b`s (An
--- `Interval a b` is just an `Auto a (Maybe b)`.  Give a `(k, a)` as an
--- input, and it feeds the `a` to the `Auto` at `k`.  Every step, outputs
--- a full map of the last emitted value from every `Auto`.
+-- `dynMapF` works to feed the proper command to the proper `taskAuto`, and
+-- create new `taskAuto`s on-the-fly with input from the blip stream.
 --
--- Here, it emits, at every step, the full map of all tasks and their
--- statuses.  The internal map is a map of Autos representing each task.
--- We can "update" a task by feeding in a tuple with the Task ID we want to
--- update, and the TaskCmd we want the task auto to receive.
---
--- The Task Auto can "delete itself" by outputting `Nothing`.
-taskMap :: Monad m => Auto m (Map TaskID TaskCmd) (Map TaskID Task)
-taskMap = gatherMany (const taskAuto)
+-- A task auto can "delete itself" by outputting `Nothing`.
+taskMap :: Monad m => Auto m (IntMap TaskCmd, Blip [String]) (IntMap Task)
+taskMap = (lmap . first . fmap) Just $ dynMapF taskAuto Nothing
   where
     -- the Auto for each individual task: fold over the folding function
     -- `f` for each input, with the current task.  Use `Nothing` to signal
     -- that it wants to delete itself.
-    taskAuto = accum f (Just (Task Nothing False))
+    taskAuto :: Monad m => String -> Interval m (Maybe TaskCmd) Task
+    taskAuto descr = accum f (Just (Task descr False))
     -- `f` updates our task with incoming commands; outputting `Nothing`
     -- will end itself.
-    f :: Maybe Task -> TaskCmd -> Maybe Task
-    f _        TEDelete       = Nothing
-    f (Just t) (TEComplete c) = Just (t { taskCompleted = c        })
-    f (Just t) (TEModify str) = Just (t { taskDescr     = Just str })
-    f (Just t) TEPrune        | taskCompleted t = Nothing
-                              | otherwise       = Just t
-    f t        _              = t
-
+    f :: Maybe Task -> Maybe TaskCmd -> Maybe Task
+    f (Just t) (Just te) = case te of
+                             TEDelete     -> Nothing
+                             TEComplete c -> Just $ t { taskCompleted = c }
+                             TEModify str -> Just $ t { taskDescr = str }
+                             TEPrune | taskCompleted t -> Nothing
+                                     | otherwise       -> Just t
+    f t _                = t

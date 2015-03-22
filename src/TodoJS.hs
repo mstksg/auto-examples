@@ -26,13 +26,13 @@
 module Main (main) where
 
 import Control.Applicative
-import Control.Auto hiding         (All)
+import Control.Auto hiding          (All)
 import Control.Auto.Run
 import Control.Concurrent
-import Control.Monad               (unless, when)
+import Control.Monad                (unless, when)
 import Control.Monad.IO.Class
-import Data.Foldable               (forM_, all)
-import Data.Map                    (Map)
+import Data.Foldable                (forM_, all)
+import Data.IntMap                  (IntMap)
 import Data.Maybe
 import Data.Serialize
 import GHC.Generics
@@ -41,19 +41,19 @@ import GHCJS.DOM.Document
 import GHCJS.DOM.Element
 import GHCJS.DOM.EventM
 import GHCJS.DOM.HTMLAnchorElement
-import GHCJS.DOM.HTMLMetaElement
 import GHCJS.DOM.HTMLButtonElement
 import GHCJS.DOM.HTMLElement
 import GHCJS.DOM.HTMLInputElement
 import GHCJS.DOM.HTMLLabelElement
 import GHCJS.DOM.HTMLLinkElement
+import GHCJS.DOM.HTMLMetaElement
 import GHCJS.DOM.HTMLTitleElement
 import GHCJS.DOM.Node
 import GHCJS.DOM.Types
 import GHCJS.Foreign
-import Prelude hiding              ((.), id, all)
+import Prelude hiding               ((.), id, all)
 import Todo
-import qualified Data.Map.Strict   as M
+import qualified Data.IntMap.Strict as IM
 
 data GUIOpts = GUI { _currFilter   :: Filter        -- currently applied filter
                    , _currSelected :: Maybe TaskID  -- currently selected task
@@ -76,7 +76,7 @@ instance Serialize Filter
 --
 -- The result is a tuple with all of the alive `Task` items, and GUI option
 -- settings.
-todoAppGUI :: Auto' (Either TodoInp GUIInp) (Map TaskID Task, GUIOpts)
+todoAppGUI :: Auto' (Either TodoInp GUIInp) (IntMap Task, GUIOpts)
 todoAppGUI = proc inp -> do
     -- process the input items that are for the Todo app itself.  pretty
     --   much just feeds it to the `todoApp` auto, from `Todo.hs`, which
@@ -199,8 +199,8 @@ renderInitial doc inputChan = do
 
     return (main_, footer)
 
--- | Render the view for a given "output state" `(Map TaskID Task,
--- GUIOpts)`, and add the callbacks.
+-- | Render the view for a given "output state" `(IntMap Task, GUIOpts)`,
+-- and add the callbacks.
 --
 -- One thing to remember that is there is basically no logic going on here.
 -- All we are doing is rendering the output of the `Auto` in a "dumb" way,
@@ -217,11 +217,11 @@ renderGui :: Document
           -> HTMLElement
           -> HTMLElement
           -> Chan (Either TodoInp GUIInp)
-          -> (Map TaskID Task, GUIOpts)
+          -> (IntMap Task, GUIOpts)
           -> IO Bool
 renderGui doc main_ footer inputChan (tasks, GUI filt selc) = do
-    htmlElementSetHidden main_ (M.size tasks == 0)
-    htmlElementSetHidden footer (M.size tasks == 0)
+    htmlElementSetHidden main_ (IM.size tasks == 0)
+    htmlElementSetHidden footer (IM.size tasks == 0)
 
     htmlElementSetInnerHTML main_ ""
     htmlElementSetInnerHTML footer ""
@@ -244,12 +244,12 @@ renderGui doc main_ footer inputChan (tasks, GUI filt selc) = do
     todo_list <- createAppend doc main_ "ul" castToHTMLUListElement
     elementSetId todo_list "todo-list"
 
-    _ <- M.traverseWithKey (renderTask todo_list) tasks'
+    _ <- IM.traverseWithKey (renderTask todo_list) tasks'
 
     todo_count <- createAppend doc footer "span" castToHTMLElement
     elementSetId todo_count "todo-count"
     htmlElementSetInnerHTML todo_count $ "<strong>"
-                                      <> show (M.size uncompl)
+                                      <> show (IM.size uncompl)
                                       <> "</strong> tasks left"
 
     filters <- createAppend doc footer "ul" castToHTMLUListElement
@@ -270,9 +270,9 @@ renderGui doc main_ footer inputChan (tasks, GUI filt selc) = do
     clear_completed <- createAppend doc footer "button" castToHTMLButtonElement
     elementSetId clear_completed "clear-completed"
     elementSetClassName clear_completed "clear-completed"
-    htmlElementSetHidden clear_completed (M.size compl == 0)
+    htmlElementSetHidden clear_completed (IM.size compl == 0)
     htmlElementSetInnerHTML clear_completed $ "Clear completed ("
-                                           <> show (M.size compl)
+                                           <> show (IM.size compl)
                                            <> ")"
 
     -- send a new command to the queue whenever button is pressed
@@ -285,10 +285,10 @@ renderGui doc main_ footer inputChan (tasks, GUI filt selc) = do
   where
     tasks' = case filt of
                All       -> tasks
-               Active    -> M.filter (not . taskCompleted) tasks
-               Completed -> M.filter taskCompleted tasks
+               Active    -> IM.filter (not . taskCompleted) tasks
+               Completed -> IM.filter taskCompleted tasks
     allCompleted = all taskCompleted tasks
-    (compl, uncompl) = M.partition taskCompleted tasks
+    (compl, uncompl) = IM.partition taskCompleted tasks
 
     renderTask :: HTMLUListElement -> TaskID -> Task -> IO ()
     renderTask todo_list tid t = do
@@ -312,7 +312,7 @@ renderGui doc main_ footer inputChan (tasks, GUI filt selc) = do
           writeChan inputChan (Left (IETask tid (TEComplete newCompl)))
 
         descr <- createAppend doc view "label" castToHTMLLabelElement
-        htmlElementSetInnerHTML descr (fromMaybe "" (taskDescr t))
+        htmlElementSetInnerHTML descr (taskDescr t)
 
         -- send a new command to the queue whenever button is pressed
         _ <- elementOndblclick descr . liftIO $
@@ -326,8 +326,7 @@ renderGui doc main_ footer inputChan (tasks, GUI filt selc) = do
 
         edit <- createAppend doc li "input" castToHTMLInputElement
         elementSetClassName edit "edit"
-        forM_ (taskDescr t) $ \tdescr ->
-          htmlInputElementSetValue edit tdescr
+        htmlInputElementSetValue edit (taskDescr t)
         htmlInputElementSetName edit "title"
         elementSetId edit $ "todo-" <> show tid
 

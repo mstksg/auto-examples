@@ -186,6 +186,7 @@ executable todo
                      , auto
                      , containers
                      , cereal
+                     , profunctors
   hs-source-dirs:      src
   ghc-options:         -O2 -Wall
   default-language:    Haskell2010
@@ -203,6 +204,7 @@ executable todo-js
                        , ghcjs-base
                        , ghcjs-dom
                        , transformers
+                       , profunctors
   hs-source-dirs:      src
   ghc-options:         -O2 -Wall
   default-language:    Haskell2010

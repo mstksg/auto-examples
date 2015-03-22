@@ -13,12 +13,12 @@ module Main (main) where
 
 import Control.Auto
 import Control.Monad
-import Data.Map           (Map)
+import Data.IntMap           (IntMap)
 import Data.Maybe
-import Prelude hiding     ((.), id)
+import Prelude hiding        ((.), id)
 import Text.Read
 import Todo
-import qualified Data.Map as M
+import qualified Data.IntMap as IM
 
 -- | Parse a string input.
 parseInp :: String -> Maybe TodoInp
@@ -37,15 +37,15 @@ parseInp = p . words
     (<&>) :: Functor f => f a -> (a -> b) -> f b
     x <&> f = fmap f x
 
--- | Just for command line testing use, turning the Map into a String.
-formatTodo :: Map TaskID Task -> String
-formatTodo = unlines . map format . M.toList
+-- | Just for command line testing use, turning the IntMap into a String.
+formatTodo :: IntMap Task -> String
+formatTodo = unlines . map format . IM.toList
   where
     format (n, Task desc compl) = concat [ show n
                                          , ". ["
                                          , if compl then "X" else " "
                                          , "] "
-                                         , fromMaybe "" desc
+                                         , desc
                                          ]
 
 main :: IO ()
