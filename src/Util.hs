@@ -1,19 +1,37 @@
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 -- | Utility functions for experiments
 
-module Util (dynMapAccumF, mutual, bracketA) where
+module Util (
+    dynMapAccumF
+  , mutual
+  , bracketA
+  , InteractiveF(..)
+  , Interactive
+  , interact
+  , runInteractive
+  , UnFreeT(..)
+  , unfree
+  , refree
+  ) where
 
 import Control.Auto
 import Control.Auto.Blip.Internal
 import Control.Auto.Core
+import Control.Monad.Fix
+import Control.Monad.Free.TH
 import Control.Monad.Trans.Class
+import Control.Monad.Trans.Free
 import Control.Monad.Trans.State
 import Data.Foldable
 import Data.IntMap                (IntMap, Key)
 import Data.Serialize             (Serialize)
 import Data.Traversable
-import Prelude hiding             ((.), id, sequence, mapM, mapM_)
+import Prelude hiding             ((.), id, sequence, mapM, mapM_, interact)
 import qualified Data.IntMap      as IM
 import qualified Data.Serialize   as S
 
@@ -96,3 +114,42 @@ genericZipMapWithDefaults mm f x0 y0 = mm f' zx zy
 
 zipIntMapWithDefaults :: (a -> b -> c) -> Maybe a -> Maybe b -> IntMap a -> IntMap b -> IntMap c
 zipIntMapWithDefaults = genericZipMapWithDefaults IM.mergeWithKey
+
+
+data InteractiveF p r a = Interact p (r -> a) deriving Functor
+
+makeFree ''InteractiveF
+
+runInteractive :: Monad m
+               => (p -> m r)
+               -> FreeT (InteractiveF p r) m a
+               -> m a
+runInteractive prompt iact = do
+    ran <- runFreeT iact
+    case ran of
+      Pure x -> return x
+      Free (Interact p f) -> do
+        resp <- prompt p
+        runInteractive prompt (f resp)
+
+data UnFreeT t m a = UnFree { runUnFreeT :: (forall x. t m x -> m x) -> t m a }
+
+unfree :: t m a -> UnFreeT t m a
+unfree tm = UnFree $ \_ -> tm
+
+instance MonadTrans t => MonadTrans (UnFreeT t) where
+    lift = unfree . lift
+
+refree :: (forall x. t m x -> m x) -> UnFreeT t m a -> t m a
+refree interp x = runUnFreeT x interp
+
+instance (MonadTrans t, Monad m, Monad (t m)) => Monad (UnFreeT t m) where
+    return = lift . return
+    x >>= k = UnFree $ \interp -> runUnFreeT x interp >>= refree interp . k
+
+instance (MonadTrans t, MonadFix m, Monad (t m)) => MonadFix (UnFreeT t m) where
+    mfix f = UnFree $ \interp -> lift . mfix $ interp . refree interp . f
+
+
+type Interactive p r = UnFreeT (FreeT (InteractiveF p r))
+

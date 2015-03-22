@@ -26,7 +26,7 @@ import Control.Monad               (unless, guard, mfilter, liftM)
 import Control.Monad.Fix
 import Control.Monad.Free.TH
 import Control.Monad.IO.Class
-import Control.Monad.Free
+import Control.Monad.Trans.Free
 import Data.Foldable
 import Data.IntMap                 (IntMap, Key)
 import Data.List                   (sortBy)
@@ -134,30 +134,11 @@ instance Monoid PlayerOut where
     mempty  = PO [] 0
     mappend = (<>)
 
-data InteractiveF p r a = Interact p (r -> a) deriving Functor
-
-type Interactive p r = Free (InteractiveF p r)
-
 type GameInteract = Interactive (Maybe PlayerOut, GameMap) Cmd
 
-makeFree ''InteractiveF
 
-runInteractive :: Monad m
-               => (p -> m r)
-               -> Interactive p r a
-               -> m a
-runInteractive prompt iact = case iact of
-                               Pure x -> return x
-                               Free (Interact p f) -> do
-                                 res <- prompt p
-                                 runInteractive prompt (f res)
 
-    -- ran <- runFreeT iact
-    -- case ran of
-    --   Pure x -> return x
-    --   Free (Interact p f) -> do
-    --     resp <- prompt p
-    --     runInteractive prompt (f resp)
+-- instance MonadFix (FreeT (InteractiveF Cmd r) IO)
 
 -- instance MonadFix m => MonadFix (FreeT (InteractiveF p r) m) where
 --     mfix f = FreeT (mfix (runFreeT . f . breakdown))
@@ -278,9 +259,24 @@ monster c damg = proc ei -> do
   where
     atkMap = M.fromList . map (,damg) $ [EPlayer, EWall, EBomb]
 
-player :: Auto GameInteract EntityInput EntityOutput
+withHealth :: Monad m
+           => Double
+           -> Auto m EntityInput EntityOutput
+           -> Interval m EntityInput EntityOutput
+withHealth h0 entA = proc ei -> do
+    eOut <- entA -< ei
+    let damage = sumOf (eiComm . traverse . _2 . _ECAtk) ei
+
+    health <- sumFrom h0 -< negate damage
+
+    die <- became (<= 0) -< health
+    before -?> dead -< (eOut , die)
+  where
+    dead  = lmap (set eoResps Nothing . fst) (onFor 1)
+
+player :: Monad m => Auto (GameInteract m) EntityInput EntityOutput
 player = proc ei -> do
-    cmd  <- arrM interact -< (Nothing, M.empty)
+    cmd  <- arrM (\x -> unfree (interact x)) -< (Nothing, M.empty)
     move <- fromBlips zero
           . modifyBlips dirToV2
           . emitJusts (preview _CMove) -< cmd
@@ -299,17 +295,119 @@ player = proc ei -> do
                      Wall  -> ERBuild d
     atkMap = M.fromList . map (,1000) $ [EWall, EMonster 'Z', EBomb]
 
-game :: StdGen -> Auto GameInteract () ()
+game :: MonadFix m => StdGen -> Auto (GameInteract m) () ()
 game g = proc _ -> do
+    mkPlayer <- immediately -< [(zero :: Point, ERPlayer startPos)]
+
+    rec entOuts <- dynMapF makeEntity mempty -< (entInsD, newEntsB <> mkPlayer)
+
+        let entOutsAlive = IM.filter (has (eoResps . _Just)) entOuts              -- 1
+
+            entMap       = (_eoPos &&& _eoEntity) <$> entOutsAlive
+            entIns       = IM.foldlWithKey (mkEntIns entMap) IM.empty entOutsAlive :: IntMap EntityInput -- 1
+            entMap'      = flip IM.mapMaybeWithKey entIns $ \k ei -> do           -- 1
+                             eo <- IM.lookup k entOutsAlive
+                             return (_eiPos ei, _eoEntity eo)
+            entIns'      = flip IM.mapWithKey entIns $ \k -> set eiWorld (IM.delete k entMap')      -- 1
+
+            newEnts      = toList entOutsAlive >>= \(EO p _ _ _ ers) -> maybe [] (map (p,)) ers   -- 1
+
+        newEntsB <- lagBlips . emitOn (not . null) -< newEnts                     -- 0
+        entInsD  <- delay IM.empty                 -< entIns'                     -- 0
+
     id -< ()
+  where
+    mkEntIns :: EntityMap
+             -> IntMap EntityInput
+             -> Key
+             -> EntityOutput
+             -> IntMap EntityInput
+    mkEntIns em eis k (EO pos0 mv _ react (Just resps)) = IM.insertWith (<>) k res withAtks
+      where
+        em'      = IM.delete k em
+        pos1     = pos0 ^+^ mv
+        oldCols  = IM.mapMaybe (\(p,e) -> e <$ guard (p == pos1)) em'
+        newCols  = flip IM.mapMaybeWithKey eis $ \k' ei -> do
+                     guard (_eiPos ei == pos1)
+                     snd <$> IM.lookup k' em'
+        allCols  = oldCols <> newCols
+        pos2     | any isBlocking allCols = pos0
+                 | otherwise              = clamp pos1    -- could be short circuited here, really...
+        colAtks  = IM.mapMaybe (\e -> (\d -> over eiComm ((k, ECAtk d):) mempty) <$> M.lookup e react) allCols
+        respAtks = IM.unionsWith (<>) . flip mapMaybe resps $ \r ->
+                     case r of
+                       ERAtk a _ ->
+                         let placed   = place pos2 r
+                             oldHits  = () <$ IM.filter (\(p,_) -> placed == p) em'
+                             newHits  = () <$ IM.filter (\ei -> placed == _eiPos ei) eis
+                             allHits  = oldHits <> newHits
+                         in  Just $ set eiComm [(k, ECAtk a)] mempty <$ allHits
+                       ERShoot a rg d ->   -- todo: drop stuff when too close...alert hits?
+                         let rg'      = fromIntegral rg
+                             oldHits = IM.mapMaybe (\(p,_) -> mfilter (<= rg') (aligned pos2 p d)) em'
+                             newHits = IM.mapMaybe (\ei    -> mfilter (<= rg') (aligned pos2 (_eiPos ei) d)) eis
+                             allHits = oldHits <> newHits
+                             minHit  = fst . minimumBy (comparing snd) $ IM.toList allHits
+                         in  if IM.null allHits
+                               then Nothing
+                               else Just $ IM.singleton minHit (set eiComm [(k, ECAtk a)] mempty)
+                       _          ->
+                         Nothing
+        allAtks  = colAtks <> respAtks
+        withAtks = IM.unionWith (<>) allAtks eis
+        res      = EI pos2 [] em'
+        isBlocking ent = case ent of
+                           EPlayer    -> True
+                           EWall      -> True
+                           EBomb      -> True
+                           EFire      -> False
+                           EMonster _ -> True
+        aligned :: Point -> Point -> Dir -> Maybe Double
+        aligned p0 p1 dir = norm r <$ guard (abs (dotted - 1) < 0.001)
+          where
+            r      = fmap fromIntegral (p1 - p0) :: V2 Double
+            rUnit  = normalize r
+            dotted = rUnit `dot` fmap fromIntegral (dirToV2 dir)
+    mkEntIns _ eis _ _ = eis
+    clamp = liftA3 (\mn mx -> max mn . min mx) (V2 0 0) mapSize
+    makeEntity :: Monad m
+               => (Point, EntResp)
+               -> Interval (GameInteract m) EntityInput EntityOutput
+    makeEntity (p, er) = case er of
+        ERPlayer _        -> booster placed . withHealth pHealth $ player
+        ERBomb dir        -> stretchy . booster placed $ bomb dir
+        ERBuild _         -> stretchy . booster placed . withHealth 25 $ wall
+        ERMonster c h d _ -> stretchy . booster placed . withHealth h  $ monster c d
+        ERFire s d _      -> stretchy . booster placed $ fire s d
+        _                 -> off
+      where
+        pHealth = _poHealth initialPO
+        placed = place p er
+        -- stretchy = stretchAccumBy (<>) (set (_Just . eoResps . _Just) []) 2
+        stretchy = id
+    booster p0 a = (onFor 1 . arr (set (_Just . eoPos) p0) --> id) . a
+    place :: Point -> EntResp -> Point
+    place p er = case er of
+                   ERAtk _ disp       -> p ^+^ disp
+                   ERBomb  _          -> p
+                   ERBuild dir        -> p ^+^ dirToV2 dir
+                   ERShoot _ _ dir    -> p ^+^ dirToV2 dir
+                   ERPlayer p'        -> p'
+                   ERFire _ _ d       -> p ^+^ d
+                   ERMonster _ _ _ p' -> p'
+
+initialPO :: PlayerOut
+initialPO = PO [] 50
 
 main :: IO ()
 main = do
     g <- newStdGen
     let iact = streamAuto (game g) (replicate 100 ())
     hSetBuffering stdin NoBuffering
-    () <$ runInteractive process iact
+    _ <- interp . refree interp $ iact
+    return ()
   where
+    interp = runInteractive process
     renderStdout mp = do
       clearScreen
       putStrLn ""
