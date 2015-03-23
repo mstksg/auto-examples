@@ -18,15 +18,13 @@ import Control.Auto.Collection
 import Control.Auto.Core
 import Control.Auto.Effects
 import Control.Auto.Interval
-import Control.Monad.Random
 import Control.Auto.Process.Random
 import Control.Auto.Run
-import Control.Auto.Time
 import Control.Lens
-import Control.Monad                (unless, guard, mfilter)
 import Control.Monad.Fix
-import Control.Monad.Reader hiding  (forM_)
-import Control.Monad.Writer hiding  ((<>), forM_)
+import Control.Monad.Random
+import Control.Monad.Reader hiding  (forM_, mapM_)
+import Control.Monad.Writer hiding  ((<>), forM_, mapM_)
 import Data.Foldable
 import Data.IntMap.Strict           (IntMap, Key)
 import Data.List                    (sortBy)
@@ -34,29 +32,39 @@ import Data.Map.Strict              (Map)
 import Data.Maybe
 import Data.Ord
 import Data.Serialize
-import Data.Traversable             (sequence)
 import Debug.Trace
 import GHC.Generics hiding          (to)
 import Linear hiding                (ei, trace)
-import Prelude hiding               ((.), id, elem, any, sequence, concatMap, sum, concat, sequence_)
+import Prelude hiding               ((.), id, elem, any, sequence, concatMap, sum, concat, sequence_, mapM_)
 import System.Console.ANSI
 import System.IO
-import System.Random
 import Util
 import qualified Data.IntMap.Strict as IM
 import qualified Data.Map.Strict    as M
 
+-- TODO: add kill count
+
 data Dir = DUp | DRight | DDown | DLeft
          deriving (Show, Eq, Enum, Ord, Read, Generic)
 
-data Usable = Sword | Bow | Bomb | Wall
+data Action = Sword
+            | Bow
+            | Bomb
+            | Wall
             deriving (Show, Eq, Enum, Ord, Read, Generic)
 
 data Item = Potion
           deriving (Show, Eq, Enum, Ord, Read, Generic)
 
+data Pickup = PUArrows
+            | PUGunpowder
+            | PUCement
+            | PUPotion Double
+            | PUGold Int
+            deriving (Show, Eq, Ord, Read, Generic)
+
 data Cmd = CMove Dir
-         | CAct Usable Dir
+         | CAct Action Dir
          | CUse Item
          | CNop
          deriving (Show, Eq, Ord, Read, Generic)
@@ -68,12 +76,20 @@ data EntResp = ERAtk Double Point
              | ERFire Double Int Point
              | ERPlayer Point
              | ERMonster Char Double Double Point
+             | ERItem Pickup Point
+             | ERGive Key Pickup
              deriving (Show, Eq, Ord, Read, Generic)
 
 data EntComm = ECAtk Double
+             | ECGive Pickup
              deriving (Show, Eq, Ord, Read, Generic)
 
-data Entity = EPlayer | EBomb | EWall | EFire | EMonster Char
+data Entity = EPlayer
+            | EBomb
+            | EWall
+            | EFire
+            | EMonster Char
+            | EItem Pickup
             deriving (Show, Eq, Ord, Read, Generic)
 
 data EntityInput = EI { _eiPos   :: Point
@@ -89,14 +105,23 @@ data EntityOutput a = EO { _eoData   :: Maybe a
                          , _eoResps  :: Maybe [EntResp]
                          } deriving (Show, Eq, Ord, Read, Generic)
 
-data PlayerOut = PO { _poMessages :: [OutMessage]
-                    , _poHealth   :: Double
+data PlayerOut = PO { _poMessages  :: [OutMessage]
+                    , _poHealth    :: Double
+                    , _poInventory :: Inventory
+                    , _poKills     :: Int
                     } deriving (Show, Eq, Ord, Read, Generic)
 
+data Inventory = Inv { _invArrows    :: Int
+                     , _invGunpowder :: Int
+                     , _invCement    :: Int
+                     , _invGold      :: Int
+                     } deriving (Show, Eq, Ord, Read, Generic)
 
 data OutMessage = OMAtk Entity Entity Double
                 | OMShot Entity Entity Double
                 | OMMiss Entity
+                | OMDeath Entity
+                | OMPickup Entity Pickup
                 deriving (Show, Eq, Ord, Read, Generic)
 
 type Point         = V2 Int
@@ -106,12 +131,14 @@ type EntityMap     = IntMap (Point, Entity)
 instance Serialize EntResp
 instance Serialize EntComm
 instance Serialize Dir
+instance Serialize Pickup
 instance Serialize Entity
 instance Serialize EntityInput
 instance Serialize a => Serialize (EntityOutput a)
 instance Serialize Cmd
 instance Serialize Item
-instance Serialize Usable
+instance Serialize Action
+instance Serialize Inventory
 instance Serialize PlayerOut
 instance Serialize OutMessage
 
@@ -135,23 +162,35 @@ instance Monoid Cmd where
     mappend _    x = x
 
 instance Semigroup PlayerOut where
-    PO m1 h1 <> PO m2 h2 = PO (m1 ++ m2) (h1 <#> h2)
+    PO m1 h1 i1 k1 <> PO m2 h2 i2 k2 = PO (m1 ++ m2) (h1 <#> h2) (i1 <> i2) (k1 <#> k2)
       where
         x <#> (-1) = x
         _ <#> y    = y
 
 instance Monoid PlayerOut where
-    mempty  = PO [] (-1)
+    mempty  = PO [] (-1) mempty (-1)
     mappend = (<>)
 
+instance Semigroup Inventory where
+    Inv a1 g1 c1 r1 <> Inv a2 g2 c2 r2 = Inv (a1 <#> a2) (g1 <#> g2) (c1 <#> c2) (r1 <#> r2)
+      where
+        x <#> (-1) = x
+        _ <#> y    = y
+
+instance Monoid Inventory where
+    mempty = Inv (-1) (-1) (-1) (-1)
+    mappend = (<>)
 
 makePrisms ''Cmd
+makePrisms ''Pickup
+makePrisms ''Item
 makePrisms ''EntResp
 makePrisms ''EntComm
 makePrisms ''Entity
 makeLenses ''EntityInput
 makeLenses ''EntityOutput
 makeLenses ''PlayerOut
+makeLenses ''Inventory
 
 mapSize :: V2 Int
 mapSize = V2 70 20
@@ -160,7 +199,10 @@ startPos :: V2 Int
 startPos = (`div` 2) <$> mapSize
 
 initialPO :: PlayerOut
-initialPO = PO [] initialHealth
+initialPO = PO [] initialHealth initialInv 0
+
+initialInv :: Inventory
+initialInv = Inv 50 20 30 0
 
 initialHealth :: Double
 initialHealth = 50
@@ -223,25 +265,48 @@ wall :: Monad m
      => Auto m EntityInput (EntityOutput a)
 wall = arr $ \ei -> EO Nothing (_eiPos ei) zero EWall M.empty (Just [])
 
-withHealth :: Monad m
+withHealth :: MonadWriter ([OutMessage], Sum Int) m
            => Double
-           -> Auto m EntityInput (EntityOutput Double)
-           -> Interval m EntityInput (EntityOutput Double)
+           -> Auto m EntityInput (EntityOutput (Double, a))
+           -> Interval m EntityInput (EntityOutput (Double, a))
 withHealth h0 entA = proc ei -> do
     eOut <- entA -< ei
     let damage = sumOf (eiComm . traverse . _2 . _ECAtk) ei
 
     health <- sumFrom h0 -< negate damage
 
-    let eOut' = set (eoData . _Just) (max 0 health) eOut
+    let eOut' = set (eoData . _Just . _1) (max 0 health) eOut
 
     die <- became (<= 0) -< health
+
+    if has (eoEntity . _EMonster) eOut
+      then arrMB tell -< ([OMDeath (_eoEntity eOut)], 1) <$ die
+      else never      -< ()
+
+    if has (eoEntity . _EPlayer) eOut
+      then arrMB (tell . (,mempty)) -< [OMDeath (_eoEntity eOut)] <$ die
+      else never                    -< ()
+
     before -?> dead -< (eOut' , die)
   where
     dead  = lmap (set eoResps Nothing . fst) (onFor 1)
 
-player :: MonadReader Cmd m => Auto m EntityInput (EntityOutput Double)
-player = proc (EI p _ world) -> do
+itemPu :: Monad m => Pickup -> Point -> Interval m EntityInput (EntityOutput (Double, a))
+itemPu pu p0 = proc ei -> do
+    pos <- onFor 1 . pure p0 <|!> id -< _eiPos ei      -- ignore first ei
+    let pPos = preview (eiWorld . ix (-1) . _1) ei
+
+    pickedB <- emitOn (uncurry (==)) -< (Just pos, pPos)
+    picked <- fromBlips [] -< [ERGive (-1) pu] <$ pickedB
+
+    let eOut = EO Nothing pos zero (EItem pu) M.empty (Just picked)
+
+    before -?> dead -< (eOut, pickedB)
+  where
+    dead = lmap fst (onFor 1) -?> lmap (set eoResps Nothing . fst) (onFor 1)
+
+player :: MonadReader Cmd m => Auto m EntityInput (EntityOutput (Double, Inventory))
+player = proc (EI p comm _) -> do
     inp <- effect ask -< ()
     move <- fromBlips zero
           . modifyBlips dirToV2
@@ -251,21 +316,38 @@ player = proc (EI p _ world) -> do
            . modifyBlips toResp
            . emitJusts (preview _CAct) -< inp
 
-    id -< EO (Just initialHealth) p move EPlayer atkMap (Just resps)
+    arrowUsage     <- emitJusts $ preview (traverse . _ERShoot) -< resps
+    gunpowderUsage <- emitJusts $ preview (traverse . _ERBomb) -< resps
+    cementUsage    <- emitJusts $ preview (traverse . _ERBuild) -< resps
+
+    getArrow     <- emitOn (> 0) -< length . toListOf (traverse . _2 . _ECGive . _PUArrows)    $ comm
+    getGunpowder <- emitOn (> 0) -< length . toListOf (traverse . _2 . _ECGive . _PUGunpowder) $ comm
+    getCement    <- emitOn (> 0) -< length . toListOf (traverse . _2 . _ECGive . _PUCement)    $ comm
+
+    arrows    <- scanPos (_invArrows initialInv)    -< merge (+) ((-1) <$ arrowUsage)     (25 <$ getArrow)
+    gunpowder <- scanPos (_invGunpowder initialInv) -< merge (+) ((-1) <$ gunpowderUsage) (10 <$ getGunpowder)
+    cement    <- scanPos (_invCement initialInv)    -< merge (+) ((-1) <$ cementUsage)    (15 <$ getCement)
+
+    gold         <- sumFrom 0 -< sumOf (traverse . _2 . _ECGive . _PUGold) comm
+
+    let resps' = filter (enough arrows gunpowder cement) resps
+
+    id -< EO (Just (initialHealth, Inv arrows gunpowder cement gold)) p move EPlayer atkMap (Just resps')
   where
-    toResp :: (Usable, Dir) -> EntResp
+    toResp :: (Action, Dir) -> EntResp
     toResp (u,d) = case u of
                      Sword -> ERAtk 4 (dirToV2 d)
-                     Bow   -> ERShoot 1 20 d
+                     Bow   -> ERShoot 1 15 d
                      Bomb  -> ERBomb d
                      Wall  -> ERBuild d
     atkMap = M.fromList . map (,4) $ [EWall, EMonster 'Z', EBomb]
-
-actionMap :: Map (Usable, Dir) EntResp
-actionMap = M.fromList $ fmap (\d -> ((Sword, d), ERAtk 400 (dirToV2 d))) [DUp ..]
-                      ++ fmap (\d -> ((Bow, d), ERShoot 400 20 d)) [DUp ..]
-                      ++ fmap (\d -> ((Bomb, d), ERBomb d)) [DUp ..]
-                      ++ fmap (\d -> ((Wall, d), ERBuild d)) [DUp ..]
+    scanPos = scanB (\x y -> max 0 (x + y))
+    enough ar gp cm resp = case resp of
+                             ERAtk {}   -> True
+                             ERShoot {} -> ar > 0
+                             ERBomb {}  -> gp > 0
+                             ERBuild {} -> cm > 0
+                             _          -> True
 
 monster :: MonadRandom m
         => Char
@@ -274,17 +356,14 @@ monster :: MonadRandom m
 monster c damg = proc ei -> do
     let pPos  = ei ^? eiWorld . traverse . filtered (has (_2 . _EPlayer)) . _1
         mPos  = _eiPos ei
-        world = _eiWorld ei
         delta = (^-^ mPos) <$> pPos
-        move  = flip fmap delta $ \(V2 dx dy) ->
+        moves = flip fmap delta $ \(V2 dx dy) ->
                   let adx = abs dx
                       ady = abs dy
-                  in  case () of
-                        () | adx == 0  -> V2 0 (signum dy)
-                           | ady == 0  -> V2 (signum dx) 0
-                           | adx < ady -> V2 (signum dx) 0
-                           | otherwise -> V2 0 (signum dy)
+                  in  (V2 (signum dx) 0 <$ guard (adx /= 0))
+                  <|> (V2 0 (signum dy) <$ guard (ady /= 0))
 
+    move <- during (arrM uniform) -< moves
     wander <- effect (dirToV2 `liftM` uniform [DUp ..]) -< ()
 
     let move' = fromMaybe wander move
@@ -295,15 +374,18 @@ monster c damg = proc ei -> do
 
 game :: MonadFix m
      => StdGen
-     -> Auto m Cmd [(Maybe PlayerOut, GameMap)]
+     -> Auto m Cmd (PlayerOut, GameMap)
 game g = proc inp -> do
-    (((eo, _), gm), msgs) <- game' -< inp
-    id -< [(fmap (PO msgs) . _eoData =<< eo, gm)]
+    (((eo, _), gm), (msgs, newKills)) <- game' -< inp
+    kills <- sumFrom 0 -< getSum newKills
+    let (hlth, inv) = fromMaybe (0, Inv 0 0 0 0) $ _eoData =<< eo
+    let po = PO msgs hlth inv kills
+    id -< (po, gm)
   where
     game' = runWriterA (sealRandomStd (bracketA playerA worldA) g)
-    playerA :: (MonadFix m, MonadWriter [OutMessage] m)
+    playerA :: (MonadFix m, MonadWriter ([OutMessage], Sum Int) m)
             => Auto m (Either Cmd EntityInput)
-                      ( ( Maybe (EntityOutput Double)
+                      ( ( Maybe (EntityOutput (Double, Inventory))
                         , IntMap EntityInput
                         )
                       , GameMap
@@ -316,7 +398,7 @@ game g = proc inp -> do
             let (pEis, msgs) = IM.mapAccumWithKey (mkEntIns lastWorld) IM.empty $ maybe IM.empty (IM.singleton (-1)) pEo
             currPos <- holdWith startPos . emitJusts (preview (ix (-1) . eiPos)) -< pEis
 
-        arrM tell -< toListOf (traverse . traverse) msgs
+        arrM (tell . (,mempty)) -< toListOf (traverse . traverse) msgs
 
         let outEo = set (_Just . eoPos) currPos pEo
             outEi = IM.delete (-1) pEis
@@ -330,22 +412,23 @@ game g = proc inp -> do
                  . (fmap . second) (:[])
                  . IM.insert (-1) (p, EPlayer)
 
-    worldA :: (MonadFix m, MonadWriter [OutMessage] m, MonadRandom m)
-           => Auto m ( ( Maybe (EntityOutput Double)
+    worldA :: (MonadFix m, MonadWriter ([OutMessage], Sum Int) m, MonadRandom m)
+           => Auto m ( ( Maybe (EntityOutput (Double, a))
                        , IntMap EntityInput
                        ), GameMap
                      )
                      EntityInput
     worldA = proc ((pEo, pEis), _) -> do
         mkMonsters <- makeMonsters 25 -< ()
+        mkItems    <- makeItems 20 -< ()
 
-        rec entOuts <- dynMapF makeEntity mempty -< (IM.unionWith (<>) pEis entInsD', newEntsBAll <> mkMonsters)         -- 1
+        rec entOuts <- dynMapF makeEntity mempty -< (IM.unionWith (<>) pEis entInsD', newEntsBAll <> mkMonsters <> mkItems)         -- 1
 
             let entOutsAlive = IM.filter (has (eoResps . _Just)) entOuts              -- 1
                 entOutsFull  = maybe entOutsAlive (\po -> IM.insert (-1) po entOutsAlive) pEo
 
                 entMap       = (_eoPos &&& _eoEntity) <$> entOutsFull
-                -- entIns - no trace of player
+                -- entIns - no trace of player input
                 (entIns,msgs) = IM.mapAccumWithKey (mkEntIns entMap) IM.empty entOutsAlive -- 1
                 entMap'      = maybe id (\po -> IM.insert (-1) (_eoPos po, EPlayer)) pEo
                              . flip IM.mapMaybeWithKey entIns $ \k ei -> do           -- 1
@@ -370,19 +453,39 @@ game g = proc inp -> do
 
             let newEntsBAll  = newEntsB <> playerB                                    -- 1
 
-        arrM tell -< toListOf (traverse . traverse) msgs
+        arrM (tell . (,mempty)) -< toListOf (traverse . traverse) msgs
 
         id -< set eiWorld (IM.delete (-1) entMap') . IM.findWithDefault mempty (-1) $ entIns'
       where
         makeMonsters :: MonadRandom m => Int -> Auto m a (Blip [(Point, EntResp)])
-        makeMonsters n = onFor 100 . perBlip makeMonster . every n
-                     --> makeMonsters (n `div` 2)
+        makeMonsters n = onFor 500 . perBlip makeMonster . every n
+                     --> makeMonsters ((n * 3) `div` 4)
         makeMonster :: MonadRandom m => Auto m a [(Point, EntResp)]
         makeMonster = liftA2 (\x y -> [(zero, ERMonster 'Z' 5 5 (shift (V2 x y)))])
                              (effect (getRandomR (0, view _x mapSize `div` 2)))
                              (effect (getRandomR (0, view _y mapSize `div` 2)))
           where
             shift = liftA2 (\m x -> (x - (m `div` 4)) `mod` m) mapSize
+
+        makeItems :: MonadRandom m => Double -> Auto m a (Blip [(Point, EntResp)])
+        makeItems r = perBlip makeItem . bernoulliMR (1/r)
+          where
+            makeItem = liftA3 (\x y i -> [(zero, ERItem i (shift (V2 x y)))])
+                              (effect (getRandomR (0, 2 * view _x mapSize `div` 3)))
+                              (effect (getRandomR (0, 2 * view _y mapSize `div` 3)))
+                              (effect randomItem)
+            shift = liftA2 (\m x -> (x + (m `div` 6))) mapSize
+            randomItem = do
+              x <- fromList [ (PUArrows, 2)
+                            , (PUGunpowder, 2)
+                            , (PUCement, 1)
+                            , (PUPotion 0, 1)
+                            , (PUGold 0, 1)
+                            ]
+              case x of
+                PUGold _   -> PUGold `liftM` getRandomR (5,15)
+                PUPotion _ -> PUPotion `liftM` getRandomR (10,40)
+                _          -> return x
 
     booster p0 a = (onFor 1 . arr (set (_Just . eoPos) p0) --> id) . a
 
@@ -391,7 +494,7 @@ game g = proc inp -> do
              -> Key
              -> EntityOutput a
              -> (IntMap EntityInput, [OutMessage])
-    mkEntIns em eis k (EO _ pos0 mv e react (Just resps)) = (IM.insertWith (<>) k res withAtks, messages)
+    mkEntIns em eis k (EO _ pos0 mv e react (Just resps)) = (IM.insertWith (<>) k res withGives, messages)
       where
         em'      = IM.delete k em
         pos1     = pos0 ^+^ mv
@@ -433,10 +536,17 @@ game g = proc inp -> do
                        _          ->
                          Nothing
 
+        respGives = IM.unionsWith (<>) . flip mapMaybe resps $ \r ->
+                      case r of
+                        ERGive k' pu -> Just $ IM.singleton k' (set eiComm [(k, ECGive pu)] mempty, [OMPickup (snd (em IM.! k')) pu])
+                        _            -> Nothing
+
         allAtks  = colAtks <> respAtks
-        messages = toListOf (traverse . _2 . traverse) allAtks
+        messages = toListOf (traverse . traverse)
+                 $ IM.unionWith (<>) (snd <$> allAtks) (snd <$> respGives)
 
         withAtks = IM.unionWith (<>) (fst <$> IM.delete k allAtks) eis
+        withGives = IM.unionWith (<>) (fst <$> respGives) withAtks
         res      = EI pos2 [] em'
         isBlocking ent = case ent of
                            EPlayer    -> True
@@ -444,6 +554,7 @@ game g = proc inp -> do
                            EBomb      -> True
                            EFire      -> False
                            EMonster _ -> True
+                           EItem _    -> False
         aligned :: Point -> Point -> Dir -> Maybe Double
         aligned p0 p1 dir = norm r <$ guard (abs (dotted - 1) < 0.001)
           where
@@ -457,56 +568,61 @@ game g = proc inp -> do
                          EBomb      -> True
                          EFire      -> False
                          EMonster _ -> True
+                         EItem _    -> False
     mkEntIns _ eis _ _ = (eis, [])
     clamp = liftA3 (\mn mx -> max mn . min mx) (V2 0 0) mapSize
-    makeEntity :: MonadRandom m
+    makeEntity :: (MonadRandom m, MonadWriter ([OutMessage], Sum Int) m)
                => (Point, EntResp)
-               -> Interval m EntityInput (EntityOutput Double)
+               -> Interval m EntityInput (EntityOutput (Double, a))
     makeEntity (p, er) = case er of
-        -- ERPlayer _        -> booster placed . withHealth pHealth $ player
-        ERBomb dir        -> stretchy . booster placed $ bomb dir
-        ERBuild _         -> stretchy . booster placed . withHealth 25 $ wall
-        ERMonster c h d _ -> stretchy . booster placed . withHealth h  $ monster c d
-        ERFire s d _      -> stretchy . booster placed $ fire s d
-        _                 -> off
+        ERBomb dir        -> booster placed $ bomb dir
+        ERBuild {}        -> booster placed . withHealth 50 $ wall
+        ERMonster c h d _ -> booster placed . withHealth h  $ monster c d
+        ERFire s d _      -> booster placed $ fire s d
+        ERItem pu pos     -> itemPu pu pos
+        ERPlayer {}       -> off
+        ERAtk {}          -> off
+        ERShoot {}        -> off
+        ERGive {}         -> off
       where
         placed = place p er
-        -- stretchy = stretchAccumBy (<>) (set (_Just . eoResps . _Just) []) 2
-        stretchy = id
     place :: Point -> EntResp -> Point
     place p er = case er of
                    ERAtk _ disp       -> p ^+^ disp
-                   ERBomb  _          -> p
+                   ERBomb {}          -> p
                    ERBuild dir        -> p ^+^ dirToV2 dir
                    ERShoot _ _ dir    -> p ^+^ dirToV2 dir
                    ERPlayer p'        -> p'
                    ERFire _ _ d       -> p ^+^ d
                    ERMonster _ _ _ p' -> p'
+                   ERItem _ p'        -> p'
+                   ERGive {}          -> zero
+
 
 handleCmd :: (Serialize b, Monoid b, Monad m)
           => Auto m Cmd b
           -> Auto m (Maybe Cmd) b
 handleCmd a0 = holdWith mempty . perBlip a0 . onJusts
 
-renderBoard :: (Maybe PlayerOut, GameMap) -> String
-renderBoard (po, mp) = case po of
-                         Just (PO msgs ph) -> unlines . concat $ [ map renderOM msgs
-                                                                 , mapOut
-                                                                 , ["Health: " ++ show (round ph :: Int)]
-                                                                 ]
-                         Nothing           -> unlines [ "You dead!"
-                                                      , unlines mapOut
-                                                      , "Health: 0"
-                                                      ]
+renderBoard :: (PlayerOut, GameMap) -> String
+renderBoard (PO msgs ph (Inv ar gp cm gd) k, mp) =
+    unlines . concat $ [ map renderOM msgs
+                       , "You dead!" <$ guard (ph <= 0)
+                       , ["[1] Sword\t[2] Bow (" ++ show ar ++ ")\t[3] Bomb (" ++ show gp ++ ")\t[4] Wall (" ++ show cm ++ ")"]
+                       , mapOut
+                       , ["Health: " ++ show (round ph :: Int) ++ "\tKills: " ++ show k ++ "\tGold: " ++ show gd]
+                       ]
   where
     renderOM om = case om of
-                    OMAtk e1 e2 d -> [entChr e1] ++ " attacked " ++ [entChr e2] ++ " for " ++ show d ++ " HP"
+                    OMAtk e1 e2 d  -> [entChr e1] ++ " attacked " ++ [entChr e2] ++ " for " ++ show d ++ " HP"
                     OMShot e1 e2 d -> [entChr e1] ++ " shot " ++ [entChr e2] ++ " for " ++ show d ++ " HP"
                     OMMiss e1      -> "Shot from " ++ [entChr e1] ++ " missed!"
+                    OMDeath e1     -> [entChr e1] ++ " died"
+                    OMPickup e1 pu -> [entChr e1] ++ " picked up " ++ showPu pu
     mapOut = reverse [[ charAt x y | x <- [0..xMax] ] | y <- [0..yMax]]
     charAt x y = fromMaybe '.' $ do
       es <- M.lookup (V2 x y) mp
-      let es' | isJust po = es
+      let es' | ph > 0 = es
               | otherwise = filter (/= EPlayer) es
       fmap entChr . listToMaybe . sortBy (comparing entPri) $ es'
     xMax = view _x mapSize
@@ -517,12 +633,27 @@ renderBoard (po, mp) = case po of
                  EWall      -> '#'
                  EFire      -> '"'
                  EMonster c -> c
+                 EItem pu   -> puChr pu
     entPri e = case e of
                  EPlayer    -> 0 :: Int
                  EBomb      -> 10
-                 EWall      -> 3
+                 EWall      -> 4
                  EFire      -> 1
                  EMonster _ -> 2
+                 EItem _    -> 3
+    puChr pu = case pu of
+                 PUArrows    -> '~'
+                 PUGunpowder -> '!'
+                 PUCement    -> '='
+                 PUPotion _  -> '?'
+                 PUGold _    -> '*'
+    showPu pu = case pu of
+                  PUArrows    -> "arrows"
+                  PUGunpowder -> "gunpowder"
+                  PUCement    -> "cement"
+                  PUPotion _  -> "an unimplemented potion"
+                  PUGold amt  -> show amt ++ " gold"
+
 
 parseCmd :: Auto m Char (Blip (Maybe Cmd))
 parseCmd = go Nothing
@@ -548,21 +679,21 @@ parseCmd = go Nothing
 
 main :: IO ()
 main = do
-    -- print $ autoConstr (player :: Auto' (EntityInput Cmd) (EntityOutput PlayerOut))
+    -- print $ autoConstr (player :: Auto (Reader Cmd) EntityInput (EntityOutput (Double, Inventory)))
     g <- newStdGen
     hSetBuffering stdin NoBuffering
-    renderStdout [ (Just initialPO, M.singleton startPos [EPlayer]) ]
-    _ <- runM generalize getChar process $ holdWith []
+    renderStdout (initialPO, M.singleton startPos [EPlayer])
+    _ <- runM generalize getChar process $ hold
                                          . perBlip (handleCmd (game g))
                                          . parseCmd
     return ()
   where
-    renderStdout mps = forM_ mps $ \mp -> do
+    renderStdout mp = do
       clearScreen
       putStrLn ""
       putStrLn (renderBoard mp)
-    process mps = do
-      unless (null mps) $ renderStdout mps
+    process mp' = do
+      mapM_ renderStdout mp'
       Just <$> getChar
 
 
