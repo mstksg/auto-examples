@@ -77,8 +77,8 @@ todoApp = proc inpEvt -> do
         -- mass.
         let allInpB = modTaskB <> allTaskB
 
-        -- from a blip stream to an `IntMap` that is empty when the stream
-        -- doesn't emit
+        -- from a blip stream to an `IntMap` stream that is empty when the
+        -- stream doesn't emit
         allInp <- fromBlips IM.empty -< allInpB
 
         -- feed the commands and the new tasks to `taskMap`...the result is
@@ -87,7 +87,7 @@ todoApp = proc inpEvt -> do
 
     id -< tMap
   where
-    -- blip stream sorters
+    -- blip stream filters
     getAddEvts :: TodoInp -> Maybe [String]
     getAddEvts (IEAdd descr) = Just [descr]
     getAddEvts _             = Nothing
@@ -108,7 +108,7 @@ todoApp = proc inpEvt -> do
 --
 -- A task auto can "delete itself" by outputting `Nothing`.
 taskMap :: Monad m => Auto m (IntMap TaskCmd, Blip [String]) (IntMap Task)
-taskMap = (lmap . first . fmap) Just $ dynMapF taskAuto Nothing
+taskMap = dynMapF taskAuto Nothing . arr (first (fmap Just))
   where
     -- the Auto for each individual task: fold over the folding function
     -- `f` for each input, with the current task.  Use `Nothing` to signal
