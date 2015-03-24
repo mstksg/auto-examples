@@ -42,20 +42,25 @@ import Util
 import qualified Data.IntMap.Strict as IM
 import qualified Data.Map.Strict    as M
 
--- TODO: add kill count
 
+-- | Types for commands, entities, inputs, outputs, etc.
+
+-- direction
 data Dir = DUp | DRight | DDown | DLeft
          deriving (Show, Eq, Enum, Ord, Read, Generic)
 
+-- an action to perform
 data Action = Sword
             | Bow
             | Bomb
             | Wall
             deriving (Show, Eq, Enum, Ord, Read, Generic)
 
+-- an item to use
 data Item = Potion
           deriving (Show, Eq, Enum, Ord, Read, Generic)
 
+-- something you can pick up
 data Pickup = PUArrows
             | PUGunpowder
             | PUCement
@@ -63,27 +68,31 @@ data Pickup = PUArrows
             | PUGold Int
             deriving (Show, Eq, Ord, Read, Generic)
 
+-- a command from the outside world/interface
 data Cmd = CMove Dir
          | CAct Action Dir
          | CUse Item
          | CNop
          deriving (Show, Eq, Ord, Read, Generic)
 
-data EntResp = ERAtk Double Point
-             | ERShoot Double Int Dir
-             | ERBomb Dir
-             | ERBuild Dir
-             | ERFire Double Int Point
-             | ERPlayer Point
-             | ERMonster Char Double Double Point
-             | ERItem Pickup Point
-             | ERGive Key Pickup
+-- a way an Entity can respond to the world
+data EntResp = ERAtk Double Point       -- attack with damage at relative position
+             | ERShoot Double Int Dir   -- shoot with damage and range in direction
+             | ERBomb Dir               -- bomb in direction
+             | ERBuild Dir              -- build in direction
+             | ERFire Double Int Point  -- start a fire with damage and duration in relative position
+             | ERMonster Char Double Double Point -- create a monster with sprite with health
+                                                  --   and damage and absolute position
+             | ERItem Pickup Point      -- place an item with pickup at absolute position
+             | ERGive Key Pickup        -- give an entity with key/id a pickup
              deriving (Show, Eq, Ord, Read, Generic)
 
-data EntComm = ECAtk Double
-             | ECGive Pickup
+-- communications an Entity can receive, from another
+data EntComm = ECAtk Double       -- attack with damage
+             | ECGive Pickup      -- give pickup
              deriving (Show, Eq, Ord, Read, Generic)
 
+-- an entity existing on the map
 data Entity = EPlayer
             | EBomb
             | EWall
@@ -92,36 +101,45 @@ data Entity = EPlayer
             | EItem Pickup
             deriving (Show, Eq, Ord, Read, Generic)
 
-data EntityInput = EI { _eiPos   :: Point
-                      , _eiComm  :: [(Key, EntComm)]
-                      , _eiWorld :: EntityMap
+-- input for an Entity auto
+data EntityInput = EI { _eiPos   :: Point             -- new position
+                      , _eiComm  :: [(Key, EntComm)]  -- communications, from id's
+                      , _eiWorld :: EntityMap         -- a map of the world
                       } deriving (Show, Eq, Ord, Read, Generic)
 
-data EntityOutput a = EO { _eoData   :: Maybe a
-                         , _eoPos    :: Point  -- position to move from
-                         , _eoMove   :: Point  -- move
-                         , _eoEntity :: Entity
-                         , _eoReact  :: Map Entity Double
-                         , _eoResps  :: Maybe [EntResp]
+-- output for an Entity auto
+data EntityOutput a = EO { _eoData   :: Maybe a   -- extra data; Nothing if none.
+                         , _eoPos    :: Point     -- position to move from
+                         , _eoMove   :: Point     -- move
+                         , _eoEntity :: Entity    -- the entity
+                         , _eoReact  :: Map Entity Double -- "how this would react" when
+                                                          --   encountering various entities;
+                                                          --   how much damage it would attack with
+                         , _eoResps  :: Maybe [EntResp]   -- lists of responses to the world.
+                                                          --   Nothing if *dead*
                          } deriving (Show, Eq, Ord, Read, Generic)
 
-data PlayerOut = PO { _poMessages  :: [OutMessage]
-                    , _poHealth    :: Double
-                    , _poInventory :: Inventory
-                    , _poKills     :: Int
+-- output type from the player to the gui/frontend
+data PlayerOut = PO { _poMessages  :: [OutMessage]    -- status messages
+                    , _poHealth    :: Double          -- health
+                    , _poInventory :: Inventory       -- inventory
+                    , _poKills     :: Int             -- kill count
                     } deriving (Show, Eq, Ord, Read, Generic)
 
+-- player inventory, for purpose of PlayerOut rendering. not actaully used
+-- for the actual inventory updating of the player itself.
 data Inventory = Inv { _invArrows    :: Int
                      , _invGunpowder :: Int
                      , _invCement    :: Int
                      , _invGold      :: Int
                      } deriving (Show, Eq, Ord, Read, Generic)
 
-data OutMessage = OMAtk Entity Entity Double
-                | OMShot Entity Entity Double
-                | OMMiss Entity
-                | OMDeath Entity
-                | OMPickup Entity Pickup
+-- a status message to the outside world
+data OutMessage = OMAtk Entity Entity Double  -- attack from to damage
+                | OMShot Entity Entity Double -- shot from to damage
+                | OMMiss Entity               -- shot missed by entity
+                | OMDeath Entity              -- entity dies
+                | OMPickup Entity Pickup      -- entity picked up picup
                 deriving (Show, Eq, Ord, Read, Generic)
 
 type Point         = V2 Int
@@ -192,6 +210,7 @@ makeLenses ''EntityOutput
 makeLenses ''PlayerOut
 makeLenses ''Inventory
 
+-- | Utility functions
 mapSize :: V2 Int
 mapSize = V2 70 20
 
@@ -202,7 +221,7 @@ initialPO :: PlayerOut
 initialPO = PO [] initialHealth initialInv 0
 
 initialInv :: Inventory
-initialInv = Inv 50 20 30 0
+initialInv = Inv 50 10 30 0
 
 initialHealth :: Double
 initialHealth = 50
@@ -222,22 +241,28 @@ v2ToDir v2 = case v2 of
                V2 (-1) 0    -> Just DLeft
                _            -> Nothing
 
-
+-- | Entity `Auto`s
+--
 bomb :: Monad m
      => Dir
      -> Interval m EntityInput (EntityOutput a)
 bomb dir = proc ei -> do
+    -- move constantly
     motion <- fromInterval zero . onFor 8 . pure (dirToV2 dir) -< ()
 
+    -- damage received
     let damage = sumOf (eiComm . traverse . _2 . _ECAtk) ei
 
+    -- trigger: explosion from damage; fuse: explosion from timeout
     trigger <- became (<= 0) . sumFrom 2 -< negate damage
     fuse    <- inB 10                    -< 0
 
+    -- explode when either `trigger` or `fuse` emit
     let explode = explodes <$ (fuse `mergeL` trigger)
 
     explosion <- fromBlips [] -< explode
 
+    -- act like the EntityOutput until explosion; then just be on for 1.
     before -?> lmap fst (onFor 1) -< (EO Nothing (_eiPos ei) motion EBomb M.empty (Just explosion), explode)
   where
     explodes = do
@@ -254,43 +279,20 @@ bomb dir = proc ei -> do
               | otherwise = 1
       return $ ERFire str dur (V2 x y)
 
+-- immediately just attack everything and die.
 fire :: Monad m
      => Double
      -> Int
      -> Interval m EntityInput (EntityOutput a)
 fire str dur = lmap (\ei -> EO Nothing (_eiPos ei) zero EFire M.empty (Just [ERAtk str zero])) (onFor dur)
 
-
+-- just sit there and do nothing.
 wall :: Monad m
      => Auto m EntityInput (EntityOutput a)
 wall = arr $ \ei -> EO Nothing (_eiPos ei) zero EWall M.empty (Just [])
 
-withHealth :: MonadWriter ([OutMessage], Sum Int) m
-           => Double
-           -> Auto m EntityInput (EntityOutput (Double, a))
-           -> Interval m EntityInput (EntityOutput (Double, a))
-withHealth h0 entA = proc ei -> do
-    eOut <- entA -< ei
-    let damage = sumOf (eiComm . traverse . _2 . _ECAtk) ei
-
-    health <- sumFrom h0 -< negate damage
-
-    let eOut' = set (eoData . _Just . _1) (max 0 health) eOut
-
-    die <- became (<= 0) -< health
-
-    if has (eoEntity . _EMonster) eOut
-      then arrMB tell -< ([OMDeath (_eoEntity eOut)], 1) <$ die
-      else never      -< ()
-
-    if has (eoEntity . _EPlayer) eOut
-      then arrMB (tell . (,mempty)) -< [OMDeath (_eoEntity eOut)] <$ die
-      else never                    -< ()
-
-    before -?> dead -< (eOut' , die)
-  where
-    dead  = lmap (set eoResps Nothing . fst) (onFor 1)
-
+-- sit there and do nothing, but when the player steps on you, send them an
+-- `ERGive` response.
 itemPu :: Monad m => Pickup -> Point -> Interval m EntityInput (EntityOutput (Double, a))
 itemPu pu p0 = proc ei -> do
     pos <- onFor 1 . pure p0 <|!> id -< _eiPos ei      -- ignore first ei
@@ -301,11 +303,47 @@ itemPu pu p0 = proc ei -> do
 
     let eOut = EO Nothing pos zero (EItem pu) M.empty (Just picked)
 
-    before -?> dead -< (eOut, pickedB)
+    naturalDeath <- inB 200 -< ()
+
+    before -?> dead -< (eOut, (() <$ pickedB) <> naturalDeath)
   where
     dead = lmap fst (onFor 1) -?> lmap (set eoResps Nothing . fst) (onFor 1)
 
-player :: MonadReader Cmd m => Auto m EntityInput (EntityOutput (Double, Inventory))
+-- take an 'Auto' that never dies, and imbues it with health and death.
+-- teaches an 'Auto' how to die.
+withHealth :: MonadWriter ([OutMessage], Sum Int) m
+           => Double
+           -> Auto m EntityInput (EntityOutput (Double, a))
+           -> Interval m EntityInput (EntityOutput (Double, a))
+withHealth h0 entA = proc ei -> do
+    eOut <- entA -< ei
+    let damage = sumOf (eiComm . traverse . _2 . _ECAtk) ei
+
+    health <- sumFrom h0 -< negate damage
+
+    -- set the EntityOutput data field to be its health
+    let eOut' = set (eoData . _Just . _1) (max 0 health) eOut
+
+    die <- became (<= 0) -< health
+
+    -- send a mesage if a monster dies
+    if has (eoEntity . _EMonster) eOut
+      then arrMB tell -< ([OMDeath (_eoEntity eOut)], 1) <$ die
+      else never      -< ()
+
+    -- send a message if the player dies
+    if has (eoEntity . _EPlayer) eOut
+      then arrMB (tell . (,mempty)) -< [OMDeath (_eoEntity eOut)] <$ die
+      else never                    -< ()
+
+    before -?> dead -< (eOut' , die)
+  where
+    dead  = lmap (set eoResps Nothing . fst) (onFor 1)
+
+-- the player. move around, send out attacks, pick up recharges, drain
+-- inventory....
+player :: MonadReader Cmd m   -- environment is the current command
+       => Auto m EntityInput (EntityOutput (Double, Inventory))
 player = proc (EI p comm _) -> do
     inp <- effect ask -< ()
     move <- fromBlips zero
@@ -324,8 +362,8 @@ player = proc (EI p comm _) -> do
     getGunpowder <- emitOn (> 0) -< length . toListOf (traverse . _2 . _ECGive . _PUGunpowder) $ comm
     getCement    <- emitOn (> 0) -< length . toListOf (traverse . _2 . _ECGive . _PUCement)    $ comm
 
-    arrows    <- scanPos (_invArrows initialInv)    -< merge (+) ((-1) <$ arrowUsage)     (25 <$ getArrow)
-    gunpowder <- scanPos (_invGunpowder initialInv) -< merge (+) ((-1) <$ gunpowderUsage) (10 <$ getGunpowder)
+    arrows    <- scanPos (_invArrows initialInv)    -< merge (+) ((-1) <$ arrowUsage)     (15 <$ getArrow)
+    gunpowder <- scanPos (_invGunpowder initialInv) -< merge (+) ((-1) <$ gunpowderUsage) ( 5 <$ getGunpowder)
     cement    <- scanPos (_invCement initialInv)    -< merge (+) ((-1) <$ cementUsage)    (15 <$ getCement)
 
     gold         <- sumFrom 0 -< sumOf (traverse . _2 . _ECGive . _PUGold) comm
@@ -349,6 +387,7 @@ player = proc (EI p comm _) -> do
                              ERBuild {} -> cm > 0
                              _          -> True
 
+-- move towards the player if it exists, or move around randomly if not.
 monster :: MonadRandom m
         => Char
         -> Double
@@ -372,16 +411,28 @@ monster c damg = proc ei -> do
   where
     atkMap = M.fromList . map (,damg) $ [EPlayer, EWall, EBomb]
 
+-- the main game loop
 game :: MonadFix m
      => StdGen
      -> Auto m Cmd (PlayerOut, GameMap)
 game g = proc inp -> do
+    -- run game', get the outputs, , count kills, save the last output,
+    -- output to the client.
     (((eo, _), gm), (msgs, newKills)) <- game' -< inp
     kills <- sumFrom 0 -< getSum newKills
-    let (hlth, inv) = fromMaybe (0, Inv 0 0 0 0) $ _eoData =<< eo
+    lastEoDat <- holdJusts
+            <|!> pure (initialHealth, initialInv) -< _eoData =<< eo
+    let (hlth, inv) = lastEoDat
     let po = PO msgs hlth inv kills
     id -< (po, gm)
   where
+    -- run the Writer and the Random over 'bracketA playerA worldA'
+    -- "bracketA" runs player, then world, then player, so that the player
+    -- gets a chance to "clean up".
+    -- bracketA :: Auto m (Either a b) c -> Auto m c b -> Auto m a c runs
+    -- the first on the `a` Right input, feeds the `c` into the second,
+    -- runs the `b` output onto the first's Left channel, and outputs the
+    -- final `c`.
     game' = runWriterA (sealRandomStd (bracketA playerA worldA) g)
     playerA :: (MonadFix m, MonadWriter ([OutMessage], Sum Int) m)
             => Auto m (Either Cmd EntityInput)
@@ -390,14 +441,24 @@ game g = proc inp -> do
                         )
                       , GameMap
                       )
+    -- manage the player input and wrapping the `player` Auto
     playerA = proc inp -> do
+        -- last received world is the last world received from `Right`
         lastWorld <- holdWith IM.empty . emitJusts (preview (_Right . eiWorld)) -< inp
         rec lastPos <- delay startPos -< currPos
+            -- new entity input for player
             let ei = set eiPos lastPos . either (const mempty) id $ inp
+            -- run it through player', with the input
             pEo <- player' -< (ei, either id (const CNop) inp)
+            -- generate the resulting entity inputs for everyone else, and
+            -- messages
             let (pEis, msgs) = IM.mapAccumWithKey (mkEntIns lastWorld) IM.empty $ maybe IM.empty (IM.singleton (-1)) pEo
+
+            -- keep the current position; move when the player intputs ask
+            -- the player to move
             currPos <- holdWith startPos . emitJusts (preview (ix (-1) . eiPos)) -< pEis
 
+        -- log the messages; messages are ([OutMessage], Sum Int) (kill count)
         arrM (tell . (,mempty)) -< toListOf (traverse . traverse) msgs
 
         let outEo = set (_Just . eoPos) currPos pEo
@@ -406,12 +467,15 @@ game g = proc inp -> do
 
         id -< ((outEo, outEi), outGm)
       where
+        -- imbue position, health, and take an extra parameter as the
+        -- Reader environment
         player' = runReaderA . booster startPos . withHealth initialHealth $ player
         mkGMap p = M.fromListWith (<>)
                  . IM.elems
                  . (fmap . second) (:[])
                  . IM.insert (-1) (p, EPlayer)
 
+    -- the rest of the world
     worldA :: (MonadFix m, MonadWriter ([OutMessage], Sum Int) m, MonadRandom m)
            => Auto m ( ( Maybe (EntityOutput (Double, a))
                        , IntMap EntityInput
@@ -419,40 +483,55 @@ game g = proc inp -> do
                      )
                      EntityInput
     worldA = proc ((pEo, pEis), _) -> do
+        -- make things... monsters and items
         mkMonsters <- makeMonsters 25 -< ()
         mkItems    <- makeItems 20 -< ()
 
-        rec entOuts <- dynMapF makeEntity mempty -< (IM.unionWith (<>) pEis entInsD', newEntsBAll <> mkMonsters <> mkItems)         -- 1
+        -- run all of the entities on all of the inputs, using dynMapF
+        rec entOuts <- dynMapF makeEntity mempty -< ( -- inputs from player and inputs from entities
+                                                      IM.unionWith (<>) pEis entInsD'
+                                                      -- make-new-entity events from everywhere
+                                                    , newEntsBAll <> mkMonsters <> mkItems
+                                                    )
 
-            let entOutsAlive = IM.filter (has (eoResps . _Just)) entOuts              -- 1
+                -- only alive
+            let entOutsAlive = IM.filter (has (eoResps . _Just)) entOuts
+                -- alive + player entity output
                 entOutsFull  = maybe entOutsAlive (\po -> IM.insert (-1) po entOutsAlive) pEo
-
+                -- map of all locations and entities
                 entMap       = (_eoPos &&& _eoEntity) <$> entOutsFull
-                -- entIns - no trace of player input
-                (entIns,msgs) = IM.mapAccumWithKey (mkEntIns entMap) IM.empty entOutsAlive -- 1
+                -- generate new entity inputs from the entity outputs
+                (entIns,msgs) = IM.mapAccumWithKey (mkEntIns entMap) IM.empty entOutsAlive
+                -- update entity maps
                 entMap'      = maybe id (\po -> IM.insert (-1) (_eoPos po, EPlayer)) pEo
-                             . flip IM.mapMaybeWithKey entIns $ \k ei -> do           -- 1
+                             . flip IM.mapMaybeWithKey entIns $ \k ei -> do
                                  eo <- IM.lookup k entOutsFull
                                  return (_eiPos ei, _eoEntity eo)
-                entIns'      = flip IM.mapWithKey entIns $ \k -> set eiWorld (IM.delete k entMap')      -- 1
+                entIns'      = flip IM.mapWithKey entIns $ \k -> set eiWorld (IM.delete k entMap')
 
-                newEnts      = toList entOutsAlive >>= \(EO _ p _ _ _ ers) -> maybe [] (map (p,)) ers   -- 1
+                -- new entities, to send in as blip stream
+                newEnts      = toList entOutsAlive >>= \(EO _ p _ _ _ ers) -> maybe [] (map (p,)) ers
 
-                plrEResps    = toListOf (_Just . eoResps . _Just . traverse) pEo      -- f
-                plrEResps'   = case pEo of                                            -- f
+                -- EntResps from player
+                plrEResps    = toListOf (_Just . eoResps . _Just . traverse) pEo
+                plrEResps'   = case pEo of
                                  Nothing -> []
                                  Just po -> (_eoPos po,) <$> plrEResps
 
-            newEntsB <- lagBlips . emitOn (not . null) -< newEnts                     -- 0
-            entInsD  <- delay IM.empty                 -< entIns'                     -- 0
+            -- emit all non-empty newEnts, from "last cycle"
+            newEntsB <- lagBlips . emitOn (not . null) -< newEnts
+            -- all entity inputs from last cycle, to send into `entOuts`
+            entInsD  <- delay IM.empty                 -< entIns'
+            -- add in the player entity to the world maps
             let entInsD' = case pEo of
                              Just po -> over (traverse . eiWorld) (IM.insert (-1) (_eoPos po, EPlayer)) entInsD
                              Nothing -> entInsD
 
-            playerB  <- emitOn (not . null) -< plrEResps'                             -- 1
+            playerB  <- emitOn (not . null) -< plrEResps'
 
-            let newEntsBAll  = newEntsB <> playerB                                    -- 1
+            let newEntsBAll  = newEntsB <> playerB
 
+        -- write messages to log; messages are ([OutMessage], Sum Int) (kill count)
         arrM (tell . (,mempty)) -< toListOf (traverse . traverse) msgs
 
         id -< set eiWorld (IM.delete (-1) entMap') . IM.findWithDefault mempty (-1) $ entIns'
@@ -476,8 +555,8 @@ game g = proc inp -> do
                               (effect randomItem)
             shift = liftA2 (\m x -> (x + (m `div` 6))) mapSize
             randomItem = do
-              x <- fromList [ (PUArrows, 2)
-                            , (PUGunpowder, 2)
+              x <- fromList [ (PUArrows, 1.5)
+                            , (PUGunpowder, 1)
                             , (PUCement, 1)
                             , (PUPotion 0, 1)
                             , (PUGold 0, 1)
@@ -487,13 +566,18 @@ game g = proc inp -> do
                 PUPotion _ -> PUPotion `liftM` getRandomR (10,40)
                 _          -> return x
 
+    -- start off at give position
     booster p0 a = (onFor 1 . arr (set (_Just . eoPos) p0) --> id) . a
 
-    mkEntIns :: EntityMap
-             -> IntMap EntityInput
-             -> Key
-             -> EntityOutput a
-             -> (IntMap EntityInput, [OutMessage])
+    -- generating entity inputs from entity outputs of last round.  kinda
+    -- complicated, but this is the beef of the game logic, having every
+    -- entity communicate with every other one.  run using
+    -- `IM.mapAccumWithKey`
+    mkEntIns :: EntityMap             -- world map
+             -> IntMap EntityInput    -- current "output" map, in-progress
+             -> Key                   -- key of this processed entity
+             -> EntityOutput a        -- entity output of this processed entity
+             -> (IntMap EntityInput, [OutMessage])  -- updated "output" map, and also communications
     mkEntIns em eis k (EO _ pos0 mv e react (Just resps)) = (IM.insertWith (<>) k res withGives, messages)
       where
         em'      = IM.delete k em
@@ -571,6 +655,8 @@ game g = proc inp -> do
                          EItem _    -> False
     mkEntIns _ eis _ _ = (eis, [])
     clamp = liftA3 (\mn mx -> max mn . min mx) (V2 0 0) mapSize
+
+    -- make entity from EntResp
     makeEntity :: (MonadRandom m, MonadWriter ([OutMessage], Sum Int) m)
                => (Point, EntResp)
                -> Interval m EntityInput (EntityOutput (Double, a))
@@ -580,30 +666,32 @@ game g = proc inp -> do
         ERMonster c h d _ -> booster placed . withHealth h  $ monster c d
         ERFire s d _      -> booster placed $ fire s d
         ERItem pu pos     -> itemPu pu pos
-        ERPlayer {}       -> off
         ERAtk {}          -> off
         ERShoot {}        -> off
         ERGive {}         -> off
       where
         placed = place p er
+
+    -- where to place entity, given initial point and resp?
     place :: Point -> EntResp -> Point
     place p er = case er of
                    ERAtk _ disp       -> p ^+^ disp
                    ERBomb {}          -> p
                    ERBuild dir        -> p ^+^ dirToV2 dir
                    ERShoot _ _ dir    -> p ^+^ dirToV2 dir
-                   ERPlayer p'        -> p'
                    ERFire _ _ d       -> p ^+^ d
                    ERMonster _ _ _ p' -> p'
                    ERItem _ p'        -> p'
                    ERGive {}          -> zero
 
 
+-- handle command stream
 handleCmd :: (Serialize b, Monoid b, Monad m)
           => Auto m Cmd b
           -> Auto m (Maybe Cmd) b
 handleCmd a0 = holdWith mempty . perBlip a0 . onJusts
 
+-- render the board
 renderBoard :: (PlayerOut, GameMap) -> String
 renderBoard (PO msgs ph (Inv ar gp cm gd) k, mp) =
     unlines . concat $ [ map renderOM msgs
@@ -636,14 +724,14 @@ renderBoard (PO msgs ph (Inv ar gp cm gd) k, mp) =
                  EItem pu   -> puChr pu
     entPri e = case e of
                  EPlayer    -> 0 :: Int
-                 EBomb      -> 10
-                 EWall      -> 4
                  EFire      -> 1
                  EMonster _ -> 2
-                 EItem _    -> 3
+                 EBomb      -> 4
+                 EItem _    -> 5
+                 EWall      -> 6
     puChr pu = case pu of
-                 PUArrows    -> '~'
-                 PUGunpowder -> '!'
+                 PUArrows    -> '>'
+                 PUGunpowder -> '%'
                  PUCement    -> '='
                  PUPotion _  -> '?'
                  PUGold _    -> '*'
@@ -655,6 +743,7 @@ renderBoard (PO msgs ph (Inv ar gp cm gd) k, mp) =
                   PUGold amt  -> show amt ++ " gold"
 
 
+-- primitive command parser
 parseCmd :: Auto m Char (Blip (Maybe Cmd))
 parseCmd = go Nothing
   where
@@ -679,7 +768,6 @@ parseCmd = go Nothing
 
 main :: IO ()
 main = do
-    -- print $ autoConstr (player :: Auto (Reader Cmd) EntityInput (EntityOutput (Double, Inventory)))
     g <- newStdGen
     hSetBuffering stdin NoBuffering
     renderStdout (initialPO, M.singleton startPos [EPlayer])
@@ -696,6 +784,6 @@ main = do
       mapM_ renderStdout mp'
       Just <$> getChar
 
-
+-- turn Identity into IO
 generalize :: Monad m => Identity a -> m a
 generalize = return . runIdentity

@@ -28,7 +28,6 @@ import Control.Monad
 import Control.Monad.Fix
 import Data.IntMap.Strict           (IntMap, Key)
 import Data.Maybe
-import Data.Profunctor
 import Data.Serialize
 import GHC.Generics
 import Prelude hiding               ((.), id)

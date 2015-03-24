@@ -21,8 +21,8 @@ bracketA :: Monad m
          => Auto m (Either a b) c
          -> Auto m c b
          -> Auto m a c
-bracketA a1 a2 = mkAutoM undefined
-                         undefined
+bracketA a1 a2 = mkAutoM (bracketA <$> resumeAuto a1 <*> resumeAuto a2)
+                         (saveAuto a1 *> saveAuto a2)
                        $ \x -> do
                            (y , a1' ) <- stepAuto a1 (Left x)
                            (z , a2' ) <- stepAuto a2 y
