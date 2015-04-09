@@ -485,7 +485,7 @@ game g = proc inp -> do
     worldA = proc ((pEo, pEis), _) -> do
         -- make things... monsters and items
         mkMonsters <- makeMonsters 25 -< ()
-        mkItems    <- makeItems 20 -< ()
+        mkItems    <- makeItems 15 -< ()
 
         -- run all of the entities on all of the inputs, using dynMapF
         rec entOuts <- dynMapF makeEntity mempty -< ( -- inputs from player and inputs from entities
