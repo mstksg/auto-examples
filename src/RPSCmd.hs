@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 
 module Main where
 
@@ -32,7 +33,7 @@ main = withSocketsDo $ do
 server :: IO ()
 server = do
     socketMap <- newMVar (IM.empty, 0)
-    inpChan   <- newChan :: IO (Chan (ID, Maybe Throw))
+    inpChan   <- newChan :: IO (Chan (ID, Input))
 
     void . forkIO . void $
       runOnChan (autoHandler socketMap) inpChan collectGames
@@ -45,7 +46,7 @@ server = do
         forM_ sock $ \s -> send s (encode o)
       return True
     onSocket :: MVar (IntMap Socket, Key)
-             -> Chan (ID, Maybe Throw)
+             -> Chan (ID, Input)
              -> (Socket, SockAddr)
              -> IO ()
     onSocket socketMap inpChan (sock, addr) = do
@@ -66,40 +67,56 @@ server = do
 client :: IO ()
 client = connect "127.0.0.1" "4050" $ \(sock, _) -> do
     putStrLn "Connected to server!"
-    send sock (encode (Nothing :: Maybe Throw))
-    putStrLn "Waiting for game..."
-    Right resp <- decode <$> untilJust (recv sock 1024) :: IO (Either String Output)
-    putStrLn $ "Game started against " ++ show (oP2Id resp) ++ "!"
-    forever $ inputLoop sock
+    waitGame sock
   where
+    waitGame :: Socket -> IO ()
+    waitGame sock = do
+      send sock (encode IJoin)
+      putStrLn "Waiting for game..."
+      Right resp <- decode <$> untilJust (recv sock 1024) :: IO (Either String Output)
+      putStrLn $ "Game started against " ++ show (oP2Id resp) ++ "!"
+      inputLoop sock
     inputLoop :: Socket -> IO ()
     inputLoop sock = do
       putStrLn "Enter throw: (R/P/S)"
-      thr <- untilJust (parseThrow <$> getLine)
-      putStrLn $ "Sending " ++ show thr
-      send sock (encode (Just thr))
+      cmd <- untilJust (parseCmd <$> getLine)
+      putStrLn $ "Sending " ++ show cmd
+      send sock (encode cmd)
       putStrLn "Waiting for opponent..."
-      untilJust $ waitResp sock
-    waitResp :: Socket -> IO (Maybe ())
+      (out, msg) <- untilJust $ waitResp sock
+      case msg of
+        MsgQuit True -> do
+          putStrLn "Quit game!  Goodbye!"
+          putStrLn $ "Final " ++ showScore out
+        MsgQuit False -> do
+          putStrLn "Opponent has quit!"
+          putStrLn $ "Final " ++ showScore out
+          putStrLn "Finding new game..."
+          waitGame sock
+        MsgRes w t   -> do
+          putStrLn $ case w of
+                       Just True  -> "Opponent threw " ++ show (losesTo t) ++ " and lost! :D"
+                       Just False -> "Opponent threw " ++ show t ++ " and won! :("
+                       Nothing    -> "Opponent threw " ++ show t ++ " to tie. :|"
+          putStrLn $ showScore out
+          inputLoop sock
+
+    waitResp :: Socket -> IO (Maybe (Output, Message))
     waitResp sock = do
       Right resp <- decode <$> untilJust (recv sock 1024) :: IO (Either String Output)
-      forM (oMessage resp) $ \rmsg -> do
-        putStrLn $ case rmsg of
-          MsgWon True t  -> "Opponent threw " ++ show (losesTo t) ++ " and lost!"
-          MsgWon False t -> "Opponent threw " ++ show t ++ " and won!"
-          MsgTie t       -> "Opponent threw " ++ show t ++ " to tie."
-        putStrLn $ "Score: "
-                ++ show (oScore1 resp)
-                ++ " - "
-                ++ show (oScore2 resp)
-                ++ " - "
-                ++ show (oTies resp)
+      return ((resp,) <$> oMessage resp)
 
-    parseThrow :: String -> Maybe Throw
-    parseThrow thr = case words thr of
-        "R":_ -> Just Rock
-        "P":_ -> Just Paper
-        "S":_ -> Just Scissors
+    parseCmd :: String -> Maybe Input
+    parseCmd cmd = case words cmd of
+        "R":_ -> Just $ IThrow Rock
+        "P":_ -> Just $ IThrow Paper
+        "S":_ -> Just $ IThrow Scissors
+        "Q":_ -> Just IQuit
         _     -> Nothing
+    showScore :: Output -> String
+    showScore out = "Score: " ++ show (oScore1 out)
+                 ++ " - "     ++ show (oScore2 out)
+                 ++ " - "     ++ show (oTies   out)
+
     untilJust :: IO (Maybe a) -> IO a
     untilJust ima = maybe (untilJust ima) return =<< ima
