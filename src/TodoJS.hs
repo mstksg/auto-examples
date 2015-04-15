@@ -1,7 +1,8 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE Arrows #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE MonadComprehensions #-}
-
+{-# LANGUAGE FlexibleContexts #-}
 -- | "Todo-JS"
 --
 -- Simple todo app on ghcjs, with logic straight from the non-javascript
@@ -29,7 +30,7 @@ import Control.Applicative
 import Control.Auto hiding          (All)
 import Control.Auto.Run
 import Control.Concurrent
-import Control.Monad                (unless, when)
+import Control.Monad                (unless, when, join)
 import Control.Monad.IO.Class
 import Data.Foldable                (forM_, all)
 import Data.IntMap                  (IntMap)
@@ -51,6 +52,19 @@ import GHCJS.DOM.HTMLTitleElement
 import GHCJS.DOM.Node
 import GHCJS.DOM.Types
 import GHCJS.Foreign
+
+import Control.Monad.State (MonadState)
+import GHCJS.DOM.Types (GObject, toGObject, unsafeCastGObject)
+import GHCJS.DOM.UIEvent
+import GHCJS.Marshal
+import GHCJS.Types
+import VirtualDom
+import qualified VirtualDom as VD
+import VirtualDom.Prim (text)
+import qualified VirtualDom.Prim as VDP
+import VirtualDom.HTML.Attributes
+import Control.Lens
+
 import Prelude hiding               ((.), id, all)
 import Todo
 import qualified Data.IntMap.Strict as IM
@@ -103,6 +117,9 @@ todoAppGUI = proc inp -> do
 
 main :: IO ()
 main = do
+    initDomDelegator
+    vbody <- newTopLevelContainer
+
     -- The `Chan` queue to dump all commands triggered by GUI actions
     inputChan <- newChan :: IO (Chan (Either TodoInp GUIInp))
 
@@ -111,14 +128,14 @@ main = do
 
       -- render the skeleton, giving a reference to the todo list and the
       --   info footer on the DOM
-      (main_, footer) <- renderInitial doc inputChan
+      _ <- renderInitial doc vbody inputChan
 
       -- Run the `Auto` `todoAppGUI` on the `inputChan` queue, by waiting
       --   for new commands (deposited by the GUI) to show up on the queue,
       --   feeding them through `todoAppGUI`, and "rendering" the output
       --   with `renderGui doc main_ footer inputChan`.
       --
-      _ <- runOnChan (renderGui doc main_ footer inputChan)
+      _ <- runOnChan (renderGui doc vbody inputChan)
                      inputChan
                      todoAppGUI
 
@@ -131,73 +148,30 @@ main = do
 -- manipulation.  If we had a high-level DOM manipulation library for ghcjs
 -- this could probably just be half as long and much more clean.
 renderInitial :: Document
+              -> VNodePresentation
               -> Chan (Either TodoInp GUIInp)
-              -> IO (HTMLElement, HTMLElement)
-renderInitial doc inputChan = do
-    Just hd <- documentGetHead doc
+              -> IO ()
+renderInitial doc vbody inputChan = do
+  Just hd <- documentGetHead doc
 
-    meta <- createAppend doc hd "meta" castToHTMLMetaElement
-    elementSetAttribute meta "charset" "utf-8"
+  meta <- createAppend doc hd "meta" castToHTMLMetaElement
+  elementSetAttribute meta (jstr "charset") (jstr "utf-8")
 
-    title <- createAppend doc hd "title" castToHTMLTitleElement
-    htmlTitleElementSetText title "auto :: TodoMVC"
+  title <- createAppend doc hd "title" castToHTMLTitleElement
+  htmlTitleElementSetText title (jstr "auto :: TodoMVC")
 
-    forM_ ["assets/base.css","assets/index.css"] $ \lnk -> do
-      cssLink <- createAppend doc hd "link" castToHTMLLinkElement
-      htmlLinkElementSetRel cssLink "stylesheet"
-      elementSetAttribute cssLink "charset" "utf-8"
-      elementSetAttribute cssLink "type" "text/css"
-      htmlLinkElementSetHref cssLink lnk
+  forM_ ["assets/base.css","assets/index.css"] $ \lnk -> do
+    cssLink <- createAppend doc hd "link" castToHTMLLinkElement
+    htmlLinkElementSetRel cssLink (jstr "stylesheet")
+    elementSetAttribute cssLink (jstr "charset") (jstr "utf-8")
+    elementSetAttribute cssLink (jstr "type") (jstr "text/css")
+    htmlLinkElementSetHref cssLink (jstr lnk)
 
-    Just body <- documentGetBody doc
-
-    todomvc_wrapper <- createAppend doc body "div" castToHTMLDivElement
-    elementSetClassName todomvc_wrapper "todomvc-wrapper"
-
-    todoapp <- createAppend doc todomvc_wrapper "section" castToHTMLElement
-    elementSetId todoapp "todoapp"
-
-    header <- createAppend doc todoapp "header" castToHTMLElement
-
-    heading <- createAppend doc header "h1" castToHTMLHeadingElement
-    htmlElementSetInnerHTML heading "todo"
-
-    new_todo <- createAppend doc header "input" castToHTMLInputElement
-    elementSetId new_todo "new-todo"
-    htmlInputElementSetPlaceholder new_todo "What needs to be done?"
-    htmlInputElementSetAutofocus new_todo True
-    htmlInputElementSetName new_todo "newTodo"
-
-    -- add an `IEAdd` command to the queue whenever a new task is submitted
-    _ <- elementOnkeypress new_todo $ do
-      k <- uiKeyCode
-      when (k == 13) . liftIO $ do
-        inp <- htmlInputElementGetValue new_todo
-        unless (null inp) $ do
-          writeChan inputChan (Left (IEAdd inp))
-          htmlInputElementSetValue new_todo ""
-
-    main_ <- createAppend doc todoapp "section" castToHTMLElement
-    elementSetId main_ "main"
-
-    footer <- createAppend doc todoapp "footer" castToHTMLElement
-    elementSetId footer "footer"
-
-    info <- createAppend doc todomvc_wrapper "footer" castToHTMLElement
-    elementSetId info "info"
-    htmlElementSetInnerHTML info $
-         "<p>Double-click to edit a todo</p>"
-      <> "<p>Written by <a href='http://jle.im'>Justin Le</a> on "
-      <> "<a href='https://github.com/ghcjs/ghcjs'>ghcjs</a> "
-      <> "as an <a href='https://github.com/mstksg/auto'>auto</a> demo "
-      <> "(source: <a href='https://github.com/mstksg/auto-examples/blob/master/src/Todo.hs'>logic</a> "
-      <> "<a href='https://github.com/mstksg/auto-examples/blob/master/src/TodoJS.hs'>view</a>)</p>"
-      <> "<p>Spec, templates, and assets from <a href='http://todomvc.com/'>TodoMVC</a></p>"
-
-   -- one render with initial GUI conditions, to set things up
-    _ <- renderGui doc main_ footer inputChan (mempty, GUI All Nothing)
-
-    return (main_, footer)
+  _ <- renderGui doc vbody inputChan (mempty, GUI All Nothing)
+  return ()
+  where
+    jstr :: JSString -> JSString
+    jstr = id
 
 -- | Render the view for a given "output state" `(IntMap Task, GUIOpts)`,
 -- and add the callbacks.
@@ -214,149 +188,232 @@ renderInitial doc inputChan = do
 --
 -- Most of the fancy display tricks are handled with css, anyway :)
 renderGui :: Document
-          -> HTMLElement
-          -> HTMLElement
+          -> VNodePresentation
           -> Chan (Either TodoInp GUIInp)
           -> (IntMap Task, GUIOpts)
           -> IO Bool
-renderGui doc main_ footer inputChan (tasks, GUI filt selc) = do
-    htmlElementSetHidden main_ (IM.size tasks == 0)
-    htmlElementSetHidden footer (IM.size tasks == 0)
-
-    htmlElementSetInnerHTML main_ ""
-    htmlElementSetInnerHTML footer ""
-
-    toggle_all <- createAppend doc main_ "input" castToHTMLInputElement
-    elementSetAttribute toggle_all "type" "checkbox"
-    elementSetId toggle_all "toggle-all"
-    htmlInputElementSetName toggle_all "toggle"
-    htmlInputElementSetChecked toggle_all allCompleted
-
-    -- send a new command to the queue whenever button is pressed
-    _ <- elementOnclick toggle_all . liftIO $ do
-      let newCompl = not allCompleted
-      writeChan inputChan (Left (IEAll (TEComplete newCompl)))
-
-    toggle_all_label <- createAppend doc main_ "label" castToHTMLLabelElement
-    htmlLabelElementSetHtmlFor toggle_all_label "toggle-all"
-    htmlElementSetInnerHTML toggle_all_label "Mark all as complete"
-
-    todo_list <- createAppend doc main_ "ul" castToHTMLUListElement
-    elementSetId todo_list "todo-list"
-
-    _ <- IM.traverseWithKey (renderTask todo_list) tasks'
-
-    todo_count <- createAppend doc footer "span" castToHTMLElement
-    elementSetId todo_count "todo-count"
-    htmlElementSetInnerHTML todo_count $ "<strong>"
-                                      <> show (IM.size uncompl)
-                                      <> "</strong> tasks left"
-
-    filters <- createAppend doc footer "ul" castToHTMLUListElement
-    elementSetId filters "filters"
-    forM_ [All ..] $ \filtType -> do
-      filtLi <- createAppend doc filters "li" castToHTMLLIElement
-
-      -- send a new command to the queue whenever button is pressed
-      _ <- elementOnclick filtLi . liftIO $
-        writeChan inputChan (Right (GIFilter filtType))
-
-      filtA <- createAppend doc filtLi "a" castToHTMLAnchorElement
-      when (filtType == filt) $ elementSetClassName filtA "selected"
-      htmlAnchorElementSetText filtA (show filtType)
-      htmlAnchorElementSetHref filtA "javascript:void();"
-
-
-    clear_completed <- createAppend doc footer "button" castToHTMLButtonElement
-    elementSetId clear_completed "clear-completed"
-    elementSetClassName clear_completed "clear-completed"
-    htmlElementSetHidden clear_completed (IM.size compl == 0)
-    htmlElementSetInnerHTML clear_completed $ "Clear completed ("
-                                           <> show (IM.size compl)
-                                           <> ")"
-
-    -- send a new command to the queue whenever button is pressed
-    _ <- elementOnclick clear_completed . liftIO $
-      writeChan inputChan (Left (IEAll TEPrune))
-
-
+renderGui doc vbody inputChan (tasks, gopts@(GUI filt selc)) = do
+    renderVNode vbody inputChan tasks tasks' gopts allCompleted (IM.size uncompl) (IM.size compl)
     -- tells `runOnChan` that we want to continue.
     return True
   where
     tasks' = case filt of
-               All       -> tasks
-               Active    -> IM.filter (not . taskCompleted) tasks
-               Completed -> IM.filter taskCompleted tasks
+              All       -> tasks
+              Active    -> IM.filter (not . taskCompleted) tasks
+              Completed -> IM.filter taskCompleted tasks
     allCompleted = all taskCompleted tasks
     (compl, uncompl) = IM.partition taskCompleted tasks
 
-    renderTask :: HTMLUListElement -> TaskID -> Task -> IO ()
-    renderTask todo_list tid t = do
-        li <- createAppend doc todo_list "li" castToHTMLLIElement
-        elementSetClassName li . unwords
-          . map snd . filter fst $ [ (taskCompleted t, "completed")
-                                   , (selc == Just tid, "editing")
-                                   ]
-
-        view <- createAppend doc li "div" castToHTMLDivElement
-        elementSetClassName view "view"
-
-        toggle <- createAppend doc view "input" castToHTMLInputElement
-        elementSetAttribute toggle "type" "checkbox"
-        elementSetClassName toggle "toggle"
-        htmlInputElementSetChecked toggle (taskCompleted t)
-
+renderVNode :: VNodePresentation
+            -> Chan (Either TodoInp GUIInp)
+            -> IntMap Task
+            -> IntMap Task
+            -> GUIOpts
+            -> Bool
+            -> Int
+            -> Int
+            -> IO ()
+renderVNode body inputChan tasks tasks' (GUI filt selc) allCompleted uncomplCount complCount = do
+  renderTo body
+    (into div_
+     [with div_ (class_ ?= "todomvc-wrapper")
+      [with section_ (id_ ?= "todoapp")
+       [into header_
+        [into h1_ ["todo"]
+        , newToDo
+        , main_
+        , footer
+        ]]
+      , info
+      ]])
+  where
+    main_ =
+      with section_ (id_ ?= "main" >>
+                     if IM.size tasks == 0
+                     then hidden_ ?= "true"
+                     else return ())
+      [toggle_all, toggle_all_label, todo_list]
+    footer =
+      with footer_ (id_ ?= "footer" >>
+                    if (IM.size tasks == 0)
+                    then hidden_ ?= "true"
+                    else return ())
+      [todo_count, filters, clear_completed]
+    newToDo =
+      with input_ (
+        onKeyPress [13]
+        (\e _ -> do
+            let inpe = castToHTMLInputElement e
+            inp <- htmlInputElementGetValue inpe
+            -- add an `IEAdd` command to the queue whenever a new task is submitted
+            unless (null inp) $ do
+              writeChan inputChan (Left (IEAdd inp))
+              htmlInputElementSetValue inpe (""::String)) >>
+        id_ ?= "new-todo" >>
+        placeholder_ ?= "What needs to be done?" >>
+        autofocus_ ?= "" >>
+        name_ ?= "newTodo")
+      []
+    toggle_all =
+      with input_ (
         -- send a new command to the queue whenever button is pressed
-        _ <- elementOnclick toggle . liftIO $ do
-          let newCompl = not (taskCompleted t)
-          writeChan inputChan (Left (IETask tid (TEComplete newCompl)))
+        on ("click") (\_ -> do
+                         let newCompl = not allCompleted
+                         writeChan inputChan (Left (IEAll (TEComplete newCompl)))) >>
+        type_ ?= "checkbox" >>
+        id_ ?= "toggle-all" >>
+        name_ ?= "toggle" >>
+        if allCompleted
+        then checked_ ?= "true"
+        else return ()) []
+    toggle_all_label =
+      with VD.label_ (for_ ?= "toggle-all") ["Mark all as complete"]
+    todo_count =
+      with VD.span_ (id_ ?= "todo-count")
+      [into strong_ [text $ show uncomplCount]
+      , " tasks left"]
+    todo_list =
+      with ul_ (id_ ?= "todo-list")
+      $ IM.elems $ IM.mapWithKey renderTask tasks'
 
-        descr <- createAppend doc view "label" castToHTMLLabelElement
-        htmlElementSetInnerHTML descr (taskDescr t)
+    filters =
+      with ul_ (id_ ?= "filters") $
+      map (\filtType ->
+            with li_ (on ("click")
+                      (\_ ->
+                        -- send a new command to the queue whenever button is pressed
+                        writeChan inputChan (Right (GIFilter filtType))) >>
+                      href_ ?= "javascript:void();")
+            [with a_ (if (filtType == filt)
+                      then class_ ?= "selected"
+                      else return ())
+             [text (show filtType)]
+            ])
+      [All ..]
+    clear_completed =
+      with button_ (on ("click")
+                    (\_ -> do
+                      -- send a new command to the queue whenever button is pressed
+                      writeChan inputChan (Left (IEAll TEPrune))) >>
+                    id_ ?= "clear-completed" >>
+                    class_ ?= "clear-completed" >>
+                    type_ ?= "button" >>
+                    if complCount == 0
+                    then hidden_ ?= "true"
+                    else return ()
+                   ) [text $ "Clear completed (" <> show complCount <> ")"]
+    info =
+      with footer_ (id_ ?= "info")
+      [into p_ ["Double-click to edit a todo"]
+      , into p_
+        ["Written by "
+        , with a_ (href_ ?= "http://jle.im") ["Justin Le"]
+        , " on "
+        , with a_ (href_ ?= "https://github.com/ghcjs/ghcjs")
+          [" ghcjs "]
+        , "as an "
+        , with a_ (href_ ?= "https://github.com/mstksg/auto")
+          ["auto"]
+        , " demo (source: "
+        , with a_ (href_ ?= "https://github.com/mstksg/auto-examples/blob/master/src/Todo.hs")
+          ["logic"]
+        , with a_  (href_ ?= "https://github.com/mstksg/auto-examples/blob/master/src/TodoJS.hs") ["view)"]]
+      , into p_ ["Spec, templates, and assets from "
+                 , with a_ (href_ ?= "http://todomvc.com") ["TodoMVC"]]
+      ]
+    renderTask :: TaskID -> Task -> VDP.HTML
+    renderTask tid t =
+      with li_ (class_ ?= taskClass) [view, edit]
+      where
+        taskClass =
+          toJSString . unwords . map snd . filter fst $ [ (taskCompleted t, "completed")
+                                                        , (selc == Just tid, "editing")
+                                                        ]
+        view = with div_ (class_ ?= "view") [toggle, descr, destroy]
+        toggle =
+          with input_ (
+            -- send a new command to the queue whenever button is pressed
+            on "click"
+            (\_ -> do
+                let newCompl = not (taskCompleted t)
+                writeChan inputChan (Left (IETask tid (TEComplete newCompl)))) >>
+            type_ ?= "checkbox" >>
+            class_ ?= "toggle" >>
+            if taskCompleted t
+            then checked_ ?= "true"
+            else return ()) []
+        descr =
+          with VD.label_ (on "dblclick"
+                          (\_ ->
+                            writeChan inputChan (Right (GISelect (Just tid)))))
+          [text (taskDescr t)]
+        destroy =
+          with button_ (on "click"
+                        (\_ -> writeChan inputChan (Left (IETask tid TEDelete))) >>
+                        class_ ?= "destroy")
+          []
+        edit =
+          with input_ (class_ ?= "edit" >>
+                       value_ ?= toJSString (taskDescr t) >>
+                       name_ ?= "title" >>
+                       id_ ?= toJSString ("todo-" <> show tid) >>
+                       -- send a new command to the queue whenever button is pressed
+                       onEl "blur" callback >>
+                       onKeyPress [13, 27] (\e _ -> callback e))
+          []
+        callback :: HTMLElement -> IO ()
+        callback e = do
+          let inpe = castToHTMLInputElement e
+          editString <- htmlInputElementGetValue inpe
+          if null editString
+            then writeChan inputChan (Left (IETask tid TEDelete))
+            else do
+            writeChan inputChan (Left (IETask tid (TEModify editString)))
+            writeChan inputChan (Right (GISelect Nothing))
 
-        -- send a new command to the queue whenever button is pressed
-        _ <- elementOndblclick descr . liftIO $
-          writeChan inputChan (Right (GISelect (Just tid)))
+onEl :: MonadState VDP.HTMLElement m => JSString -> (HTMLElement -> IO ()) -> m ()
+onEl nm cb = on (toJSString nm) f
+  where
+    f evt = do
+      mjref <- fromJSRef evt
+      case mjref of
+       Just jref ->
+         (eventTarget' evt) >>= maybe (return ()) cb
+       Nothing ->
+         return ()
 
-        destroy <- createAppend doc view "button" castToHTMLButtonElement
-        elementSetClassName destroy "destroy"
+onKeyPress :: MonadState VDP.HTMLElement m => [Int] -> (HTMLElement -> Int -> IO ()) -> m ()
+onKeyPress keys cb = on "keypress" f
+  where
+    f evt = do
+      mjref <- fromJSRef evt
+      case mjref of
+       Just jref -> do
+         let uie = unsafeCastGObject (toGObject jref)::UIEvent
+         key <- uiEventGetKeyCode uie
+         if key `elem` keys
+           then (eventTarget' evt) >>= maybe (return ()) (flip cb $ key)
+           else return ()
+       Nothing ->
+         return ()
 
-        _ <- elementOnclick destroy . liftIO $
-          writeChan inputChan (Left (IETask tid TEDelete))
+foreign import javascript safe
+  "$1.target"
+  ffiEventTarget :: JSRef Event -> JSRef HTMLElement
 
-        edit <- createAppend doc li "input" castToHTMLInputElement
-        elementSetClassName edit "edit"
-        htmlInputElementSetValue edit (taskDescr t)
-        htmlInputElementSetName edit "title"
-        elementSetId edit $ "todo-" <> show tid
-
-        let callback = liftIO $ do
-              editString <- htmlInputElementGetValue edit
-              if null editString
-                then writeChan inputChan (Left (IETask tid TEDelete))
-                else do
-                  writeChan inputChan (Left (IETask tid (TEModify editString)))
-                  writeChan inputChan (Right (GISelect Nothing))
-
-        -- send a new command to the queue whenever button is pressed
-        _ <- elementOnblur edit callback
-        _ <- elementOnkeypress edit $ do
-          k <- uiKeyCode
-          when (k `elem` [13, 27]) callback
-
-        return ()
-
+eventTarget' evt = do
+  jref <- fromJSRef $ ffiEventTarget evt
+  return $ (castToHTMLElement . toGObject) <$> jref
 
 -- Utility function to create an item on the document with a given type and
 -- tag and append it to a given parent.
 createAppend :: ( IsDocument self
-                , ToJSString tagName
                 , IsNode parent
                 , IsNode b
                 )
              => self
              -> parent
-             -> tagName
+             -> JSString
              -> (Element -> b)
              -> IO b
 createAppend doc parent tag coercer = do
