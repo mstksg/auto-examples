@@ -36,9 +36,9 @@ import qualified Data.IntMap.Strict as IM
 type TaskID = Key
 
 -- | An Input event, from the GUI
-data TodoInp = IEAdd  String
-             | IETask TaskID TaskCmd
-             | IEAll TaskCmd
+data TodoInp = IAdd  String
+             | ITask TaskID TaskCmd
+             | IAll TaskCmd
              deriving Show
 
 -- | Describing a task command
@@ -60,7 +60,7 @@ instance Serialize Task
 todoApp :: MonadFix m => Auto m TodoInp (IntMap Task)
 todoApp = proc inpEvt -> do
 
-        -- all of the id's of the current stored tasks, in the IntMap
+        -- all of the id's of the currently stored tasks, in the IntMap
         -- `tmap`.  First result will be `[]`.
     rec allIds <- arrD IM.keys [] -< tMap
 
@@ -88,14 +88,14 @@ todoApp = proc inpEvt -> do
   where
     -- blip stream filters
     getAddEvts :: TodoInp -> Maybe [String]
-    getAddEvts (IEAdd descr) = Just [descr]
-    getAddEvts _             = Nothing
+    getAddEvts (IAdd descr) = Just [descr]
+    getAddEvts _            = Nothing
     getModEvts :: TodoInp -> Maybe (IntMap TaskCmd)
-    getModEvts (IETask n te) = Just $ IM.singleton n te
-    getModEvts _             = Nothing
+    getModEvts (ITask n te) = Just $ IM.singleton n te
+    getModEvts _            = Nothing
     getMassEvts :: ([TaskID], TodoInp) -> Maybe (IntMap TaskCmd)
-    getMassEvts (allIds, IEAll te) = Just $ IM.fromList (map (,te) allIds)
-    getMassEvts _                  = Nothing
+    getMassEvts (allIds, IAll te) = Just $ IM.fromList (map (,te) allIds)
+    getMassEvts _                 = Nothing
 
 
 -- | 'Auto' taking an 'IntMap' of task commands, where the key of each

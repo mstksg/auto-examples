@@ -168,13 +168,13 @@ renderInitial doc inputChan = do
     htmlInputElementSetAutofocus new_todo True
     htmlInputElementSetName new_todo "newTodo"
 
-    -- add an `IEAdd` command to the queue whenever a new task is submitted
+    -- add an `IAdd` command to the queue whenever a new task is submitted
     _ <- elementOnkeypress new_todo $ do
       k <- uiKeyCode
       when (k == 13) . liftIO $ do
         inp <- htmlInputElementGetValue new_todo
         unless (null inp) $ do
-          writeChan inputChan (Left (IEAdd inp))
+          writeChan inputChan (Left (IAdd inp))
           htmlInputElementSetValue new_todo ""
 
     main_ <- createAppend doc todoapp "section" castToHTMLElement
@@ -235,7 +235,7 @@ renderGui doc main_ footer inputChan (tasks, GUI filt selc) = do
     -- send a new command to the queue whenever button is pressed
     _ <- elementOnclick toggle_all . liftIO $ do
       let newCompl = not allCompleted
-      writeChan inputChan (Left (IEAll (TEComplete newCompl)))
+      writeChan inputChan (Left (IAll (TEComplete newCompl)))
 
     toggle_all_label <- createAppend doc main_ "label" castToHTMLLabelElement
     htmlLabelElementSetHtmlFor toggle_all_label "toggle-all"
@@ -277,7 +277,7 @@ renderGui doc main_ footer inputChan (tasks, GUI filt selc) = do
 
     -- send a new command to the queue whenever button is pressed
     _ <- elementOnclick clear_completed . liftIO $
-      writeChan inputChan (Left (IEAll TEPrune))
+      writeChan inputChan (Left (IAll TEPrune))
 
 
     -- tells `runOnChan` that we want to continue.
@@ -309,7 +309,7 @@ renderGui doc main_ footer inputChan (tasks, GUI filt selc) = do
         -- send a new command to the queue whenever button is pressed
         _ <- elementOnclick toggle . liftIO $ do
           let newCompl = not (taskCompleted t)
-          writeChan inputChan (Left (IETask tid (TEComplete newCompl)))
+          writeChan inputChan (Left (ITask tid (TEComplete newCompl)))
 
         descr <- createAppend doc view "label" castToHTMLLabelElement
         htmlElementSetInnerHTML descr (taskDescr t)
@@ -322,7 +322,7 @@ renderGui doc main_ footer inputChan (tasks, GUI filt selc) = do
         elementSetClassName destroy "destroy"
 
         _ <- elementOnclick destroy . liftIO $
-          writeChan inputChan (Left (IETask tid TEDelete))
+          writeChan inputChan (Left (ITask tid TEDelete))
 
         edit <- createAppend doc li "input" castToHTMLInputElement
         elementSetClassName edit "edit"
@@ -333,9 +333,9 @@ renderGui doc main_ footer inputChan (tasks, GUI filt selc) = do
         let callback = liftIO $ do
               editString <- htmlInputElementGetValue edit
               if null editString
-                then writeChan inputChan (Left (IETask tid TEDelete))
+                then writeChan inputChan (Left (ITask tid TEDelete))
                 else do
-                  writeChan inputChan (Left (IETask tid (TEModify editString)))
+                  writeChan inputChan (Left (ITask tid (TEModify editString)))
                   writeChan inputChan (Right (GISelect Nothing))
 
         -- send a new command to the queue whenever button is pressed

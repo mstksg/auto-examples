@@ -24,16 +24,16 @@ import qualified Data.IntMap as IM
 parseInp :: String -> Maybe TodoInp
 parseInp = p . words
   where
-    p ("A":xs)   = Just (IEAdd (unwords xs))
+    p ("A":xs)   = Just (IAdd (unwords xs))
     p ("D":n:_)  = onId n TEDelete
     p ("C":n:_)  = onId n (TEComplete True)
     p ("U":n:_)  = onId n (TEComplete False)
     p ("P":n:_)  = onId n TEPrune
-    p ("M":n:xs) = readMaybe n <&> \i -> IETask i (TEModify (unwords xs))
+    p ("M":n:xs) = readMaybe n <&> \i -> ITask i (TEModify (unwords xs))
     p _          = Nothing
     onId :: String -> TaskCmd -> Maybe TodoInp
-    onId "*" te = Just (IEAll te)
-    onId n   te = readMaybe n <&> \i -> IETask i te
+    onId "*" te = Just (IAll te)
+    onId n   te = readMaybe n <&> \i -> ITask i te
     (<&>) :: Functor f => f a -> (a -> b) -> f b
     x <&> f = fmap f x
 
