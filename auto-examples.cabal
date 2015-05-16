@@ -21,7 +21,7 @@ executable hangman
   hs-source-dirs:      src
   -- other-modules:       
   -- other-extensions:    
-  build-depends:       base >=4.7 && <4.8
+  build-depends:       base >=4.7 && <5
                      , auto
                      , random
                      , transformers
@@ -36,7 +36,7 @@ executable logger
   hs-source-dirs:      src
   -- other-modules:       
   -- other-extensions:    
-  build-depends:       base >=4.7 && <4.8
+  build-depends:       base >=4.7 && <5
                      , auto
                      , old-locale
                      , time
@@ -50,7 +50,7 @@ executable chatbot
   hs-source-dirs:      src
   -- other-modules:       
   -- other-extensions:    
-  build-depends:       base >=4.7 && <4.8
+  build-depends:       base >=4.7 && <5
                      , auto
                      , bytestring
                      , cereal
@@ -67,7 +67,7 @@ executable life
   hs-source-dirs:      src
   -- other-modules:       
   -- other-extensions:    
-  build-depends:       base >=4.7 && <4.8
+  build-depends:       base >=4.7 && <5
                      , ansi-terminal
                      , auto
                      , cereal
@@ -80,7 +80,7 @@ executable life
 --   hs-source-dirs:      src
 --   -- other-modules:       
 --   -- other-extensions:    
---   build-depends:       base >=4.7 && <4.8
+--   build-depends:       base >=4.7 && <5
 --                      , auto
 --                      , cereal
 --                      , gloss
@@ -92,7 +92,7 @@ executable connect4
   hs-source-dirs:      src/Experimental/
   -- other-modules:       
   -- other-extensions:    
-  build-depends:       base >=4.7 && <4.8
+  build-depends:       base >=4.7 && <5
                      , ansi-terminal
                      , auto
                      , cereal
@@ -108,7 +108,7 @@ executable mhmc
   hs-source-dirs:      src
   -- other-modules:       
   -- other-extensions:    
-  build-depends:       base >=4.7 && <4.8
+  build-depends:       base >=4.7 && <5
                      , auto
                      , random
                      , transformers
@@ -122,7 +122,7 @@ executable neural
   hs-source-dirs:      src/Experimental/
   -- other-modules:       
   -- other-extensions:    
-  build-depends:       base >=4.7 && <4.8
+  build-depends:       base >=4.7 && <5
                      , auto
                      , cereal
                      , profunctors
@@ -137,7 +137,7 @@ executable survive
   hs-source-dirs:      src/Experimental/
   -- other-modules:       
   -- other-extensions:    
-  build-depends:       base >=4.7 && <4.8
+  build-depends:       base >=4.7 && <5
                      , auto
                      , random
                      , ansi-terminal
@@ -159,7 +159,7 @@ executable survive
 --   hs-source-dirs:      src
 --   -- other-modules:       
 --   -- other-extensions:    
---   build-depends:       base >=4.7 && <4.8
+--   build-depends:       base >=4.7 && <5
 --                      , auto
 --                      , random
 --                      , transformers
@@ -173,7 +173,7 @@ executable recursive
   hs-source-dirs:      src/Experimental/
   -- other-modules:       
   -- other-extensions:    
-  build-depends:       base >=4.7 && <4.8
+  build-depends:       base >=4.7 && <5
                      , auto
   hs-source-dirs:      src
   ghc-options:         -O2 -Wall
@@ -184,7 +184,7 @@ executable todo
   hs-source-dirs:      src
   -- other-modules:       
   -- other-extensions:    
-  build-depends:       base >=4.7 && <4.8
+  build-depends:       base >=4.7 && <5
                      , auto
                      , containers
                      , cereal
@@ -199,7 +199,7 @@ executable todo-js
   -- other-modules:       
   -- other-extensions:    
   if impl(ghcjs)
-    build-depends:       base >=4.7 && <4.8
+    build-depends:       base >=4.7 && <5
                        , auto
                        , containers
                        , cereal
@@ -220,7 +220,7 @@ executable rps
   hs-source-dirs:      src
   -- other-modules:       
   -- other-extensions:    
-  build-depends:       base >=4.7 && <4.8
+  build-depends:       base >=4.7 && <5
                      , auto >=0.4.2
                      , containers
                      , cereal

@@ -28,7 +28,7 @@ import Control.Monad          (void)
 import Data.Time
 import Data.Traversable       (mapM)
 import Prelude hiding         (id, (.), log, mapM)
-import System.Locale
+import System.Locale hiding   (defaultTimeLocale)
 
 -- Commands that can be sent into our logger
 data LogCmd = CHistory

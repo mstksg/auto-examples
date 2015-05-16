@@ -115,10 +115,11 @@ game p1 p2 = proc (i, inp) -> do
     p1B <- emitJusts (getThrow p1) -< (i, inp)
     p2B <- emitJusts (getThrow p2) -< (i, inp)
 
+    -- emitted when both throw finally
     throwsB <- collectB -< (p1B, p2B)
 
-    p1Gone <- holdWith False -< (False <$ throwsB) `mergeL` (True <$ p1B)
-    p2Gone <- holdWith False -< (False <$ throwsB) `mergeL` (True <$ p2B)
+    p1Gone <- holdWith False -< mergeLs [False <$ throwsB, True <$ p1B]
+    p2Gone <- holdWith False -< mergeLs [False <$ throwsB, True <$ p2B]
 
     let resultB = score <$> throwsB
 
@@ -147,7 +148,7 @@ game p1 p2 = proc (i, inp) -> do
                              Just False -> MsgRes (Just False) t2
                              Nothing    -> MsgRes Nothing t2
     fade = proc (o, w) -> do
-      quitter <- holdFor 1 -< w
+      quitter <- hold -< w
       onFor 1 -< o { oMessage = MsgQuit <$> quitter }
 
 
